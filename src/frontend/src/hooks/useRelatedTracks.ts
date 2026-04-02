@@ -7,6 +7,7 @@ import {
 import { MOCK_TRACKS } from "../data/mockData";
 import type { Track } from "../types";
 import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
+import { buildIndianLanguageMoodQuery } from "../utils/detectTrackMeta";
 import {
   applyExplorationFactor,
   deduplicateVersions,
@@ -185,12 +186,59 @@ export function useRelatedTracks(track: Track | null) {
           }
         }
 
+        // ── Step 3: Language + mood search (Indian songs only) ──
+        // Detect if the current track is an Indian-language song; if so, fetch
+        // additional results using a language+mood query to improve relevance.
+        const langMoodQuery = buildIndianLanguageMoodQuery(
+          track.title,
+          track.channelName,
+        );
+        if (langMoodQuery) {
+          const langMoodCk = cacheKey("langmood", langMoodQuery);
+          let langMoodIds = cacheGet<string[]>(langMoodCk) ?? [];
+
+          if (langMoodIds.length === 0) {
+            try {
+              const langMoodRes = await fetchWithKeyFallback((key) => {
+                const url = new URL(`${YOUTUBE_API_BASE}/search`);
+                url.searchParams.set("part", "snippet");
+                url.searchParams.set("q", langMoodQuery);
+                url.searchParams.set("type", "video");
+                url.searchParams.set("videoCategoryId", "10");
+                url.searchParams.set("maxResults", "6");
+                url.searchParams.set("key", key);
+                return url.toString();
+              });
+              if (langMoodRes.ok) {
+                const data = await langMoodRes.json();
+                langMoodIds = (data.items ?? [])
+                  .filter(
+                    (item: { id: { videoId?: string } }) => item.id.videoId,
+                  )
+                  .map((item: { id: { videoId: string } }) => item.id.videoId)
+                  .filter((id: string) => id !== track.id);
+                cacheSet(langMoodCk, langMoodIds);
+              }
+            } catch {
+              // fail silently — language/mood enhancement is best-effort
+            }
+          }
+
+          // Merge language+mood IDs into the pool (append after title/artist matches)
+          for (const id of langMoodIds) {
+            if (!primaryIds.includes(id)) primaryIds.push(id);
+          }
+        }
+
+        // Cap at 10 IDs before the details fetch to avoid large batch calls
+        primaryIds = primaryIds.slice(0, 10);
+
         if (primaryIds.length === 0) {
           if (!cancelled) setRelatedTracks([]);
           return;
         }
 
-        // ── Step 3: Fetch video details in a single API call ──
+        // ── Step 4: Fetch video details in a single API call ──
         const detailsRes = await fetchWithKeyFallback((key) => {
           const detailsUrl = new URL(`${YOUTUBE_API_BASE}/videos`);
           detailsUrl.searchParams.set("part", "contentDetails,snippet");
@@ -219,14 +267,14 @@ export function useRelatedTracks(track: Track | null) {
           }),
         );
 
-        // ── Step 4: Mix in history-based tracks (zero extra API calls) ──
+        // ── Step 5: Mix in history-based tracks (zero extra API calls) ──
         const primaryIdSet = new Set([
           track.id,
           ...primaryTracks.map((t) => t.id),
         ]);
         const historyTracks = getHistoryBasedTracks(primaryIdSet, 3);
 
-        // ── Step 5: Combine ──
+        // ── Step 6: Combine ──
         const combined = [...primaryTracks, ...historyTracks];
         const seen = new Set<string>([track.id]);
         const result: Track[] = [];
@@ -237,7 +285,7 @@ export function useRelatedTracks(track: Track | null) {
           }
         }
 
-        // ── Step 6: Smart dedup, diversity, exploration ──
+        // ── Step 7: Smart dedup, diversity, exploration ──
         // Remove duplicate versions (remix/slowed/lofi etc)
         let smartResult = deduplicateVersions(result);
         // Enforce artist diversity (max 2 per artist)

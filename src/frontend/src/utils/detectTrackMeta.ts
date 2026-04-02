@@ -78,3 +78,60 @@ export function cleanTitle(title: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * The set of Indian languages for which language+mood enhanced queries apply.
+ */
+const INDIAN_LANGUAGES = new Set([
+  "Hindi",
+  "Haryanvi",
+  "Punjabi",
+  "Tamil",
+  "Telugu",
+  "Kannada",
+  "Malayalam",
+  "Bengali",
+  "Marathi",
+  "Gujarati",
+  "Bhojpuri",
+  "Urdu",
+]);
+
+/**
+ * Builds an Indian-language+mood YouTube search query string from a song title.
+ * Returns null if the song is English or unrecognised — so the enhancement is
+ * only applied to Indian-language content.
+ *
+ * Examples:
+ *   "Haryanvi sad songs"
+ *   "Hindi romantic songs"
+ *   "Punjabi party songs"
+ *   "Tamil songs"  (when no mood detected)
+ */
+export function buildIndianLanguageMoodQuery(
+  title: string,
+  channelName: string,
+): string | null {
+  const lang = detectLanguage(title, channelName);
+  if (!INDIAN_LANGUAGES.has(lang)) return null;
+
+  const mood = detectMusicType(title);
+  // Normalise mood label to a search-friendly term
+  const moodMap: Record<string, string> = {
+    Romantic: "romantic",
+    Sad: "sad",
+    Party: "party",
+    "Lo-Fi": "lofi",
+    Remix: "remix",
+    Acoustic: "acoustic",
+    Devotional: "devotional",
+    Classical: "classical",
+    "Folk/Sufi": "sufi",
+  };
+  const moodTerm = moodMap[mood] ?? "";
+
+  if (moodTerm) {
+    return `${lang.toLowerCase()} ${moodTerm} songs`;
+  }
+  return `${lang.toLowerCase()} songs`;
+}

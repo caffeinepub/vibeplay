@@ -7,6 +7,7 @@ import type {
   UserPreferences,
 } from "../types";
 import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
+import { buildIndianLanguageMoodQuery } from "../utils/detectTrackMeta";
 import {
   deduplicateVersions,
   enforceArtistDiversity,
@@ -121,6 +122,50 @@ function buildFilterTitle(filters: string[]): string {
   return `${capitalized.join(" ")} Mix`;
 }
 
+/**
+ * Fetches tracks from YouTube for a given query, checking the cache first.
+ * Returns an empty array on failure. Results cached for 1 hour under 'langmood' key.
+ */
+async function fetchLangMoodTracks(query: string): Promise<Track[]> {
+  const ck = cacheKey("langmood", query);
+  const cached = cacheGet<Track[]>(ck);
+  if (cached) return cached;
+
+  try {
+    const res = await fetchWithKeyFallback((key) => {
+      const url = new URL(`${YOUTUBE_API_BASE}/search`);
+      url.searchParams.set("part", "snippet");
+      url.searchParams.set("q", query);
+      url.searchParams.set("type", "video");
+      url.searchParams.set("videoCategoryId", "10");
+      url.searchParams.set("maxResults", "8");
+      url.searchParams.set("key", key);
+      return url.toString();
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const tracks: Track[] = (data.items ?? []).map(
+      (item: {
+        id: { videoId: string };
+        snippet: {
+          title: string;
+          channelTitle: string;
+          thumbnails: { medium: { url: string } };
+        };
+      }) => ({
+        id: item.id.videoId,
+        title: item.snippet.title,
+        channelName: item.snippet.channelTitle,
+        thumbnail: item.snippet.thumbnails.medium.url,
+      }),
+    );
+    cacheSet(ck, tracks);
+    return tracks;
+  } catch {
+    return [];
+  }
+}
+
 export function useRecommendationEngine() {
   const [prefs, setPrefs] = useState<UserPreferences>(() =>
     readJson<UserPreferences>(LS_USER_PREFERENCES, DEFAULT_PREFS),
@@ -140,7 +185,7 @@ export function useRecommendationEngine() {
     activeFiltersRef.current = activeFilters;
   }, [activeFilters]);
 
-  // ─── Behavior recording ───────────────────────────────────────────────────
+  // ─── Behavior recording ───────────────────────────────────────────────────────────
   const appendEvent = useCallback((event: BehaviorEvent) => {
     const events = readJson<BehaviorEvent[]>(LS_BEHAVIOR_EVENTS, []);
     const next = [...events, event].slice(-MAX_BEHAVIOR_EVENTS);
@@ -255,7 +300,7 @@ export function useRecommendationEngine() {
     });
   }, []);
 
-  // ─── Filter sections fetch ────────────────────────────────────────────────
+  // ─── Filter sections fetch ─────────────────────────────────────────────
   /**
    * Fetches a YouTube search for the active filter chips and returns a
    * RecommendationSection to be placed at the TOP of the sections list.
@@ -321,7 +366,7 @@ export function useRecommendationEngine() {
     [],
   );
 
-  // ─── Sections builder ─────────────────────────────────────────────────────
+  // ─── Sections builder ─────────────────────────────────────────────────
   const buildSections = useCallback(
     async (currentPrefs: UserPreferences, showCount: number) => {
       if (buildingRef.current) return;
@@ -337,13 +382,32 @@ export function useRecommendationEngine() {
           [],
         ).slice(0, 4);
 
-        // ── 2. Because You Watched ──
+        // ── 2. Because You Watched (language + mood enhanced) ──
         const lastPlayed =
           readJson<Track[]>(LS_CONTINUE_LISTENING, [])[0] ?? null;
         let becauseYouWatched: Track[] = [];
         if (lastPlayed) {
+          // Start with cached related tracks for the last played song
           const cached = cacheGet<Track[]>(cacheKey("related", lastPlayed.id));
           becauseYouWatched = cached ?? [];
+
+          // If the last played song is Indian, also blend in language+mood results
+          const langMoodQuery = buildIndianLanguageMoodQuery(
+            lastPlayed.title,
+            lastPlayed.channelName,
+          );
+          if (langMoodQuery) {
+            const langMoodTracks = await fetchLangMoodTracks(langMoodQuery);
+            if (langMoodTracks.length > 0) {
+              // Merge: existing related tracks come first, language+mood tracks fill gaps
+              const existingIds = new Set(becauseYouWatched.map((t) => t.id));
+              const newTracks = langMoodTracks.filter(
+                (t) => !existingIds.has(t.id) && t.id !== lastPlayed.id,
+              );
+              becauseYouWatched = [...becauseYouWatched, ...newTracks];
+            }
+          }
+
           becauseYouWatched = shuffleArray(
             enforceArtistDiversity(deduplicateVersions(becauseYouWatched), 2),
           );
@@ -380,12 +444,33 @@ export function useRecommendationEngine() {
         recAllTracks = shuffleArray(mixedRecs);
 
         // ── 4. Trending in Your Interest ──
-        const topTag =
+        // If the last played track is Indian, prepend its language to the trending query
+        // for more relevant trending results.
+        let topTag =
           Object.entries(currentPrefs.tagScores).sort(
             (a, b) => b[1] - a[1],
           )[0]?.[0] ??
           currentPrefs.interests[0] ??
           "bollywood music";
+
+        if (lastPlayed) {
+          const langMoodQ = buildIndianLanguageMoodQuery(
+            lastPlayed.title,
+            lastPlayed.channelName,
+          );
+          if (langMoodQ) {
+            // Use language+mood as the trending query if it's more specific
+            // than the generic top tag
+            const topTagIsGeneric =
+              !topTag.includes("hindi") &&
+              !topTag.includes("haryanvi") &&
+              !topTag.includes("punjabi") &&
+              !topTag.includes("bollywood") &&
+              !topTag.includes("tamil") &&
+              !topTag.includes("telugu");
+            if (topTagIsGeneric) topTag = langMoodQ;
+          }
+        }
 
         const trendCacheKey = cacheKey("trending", topTag);
         let trendingTracks = cacheGet<Track[]>(trendCacheKey) ?? [];
@@ -481,7 +566,7 @@ export function useRecommendationEngine() {
     [fetchFilterSection],
   );
 
-  // ─── Debounced rebuild trigger ────────────────────────────────────────────
+  // ─── Debounced rebuild trigger ─────────────────────────────────────────────
   const triggerRebuild = useCallback(
     (p: UserPreferences, count: number) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
