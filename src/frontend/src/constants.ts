@@ -36,6 +36,32 @@ export function getActiveApiKey(): string {
 }
 
 /**
+ * Parses a YouTube API error response for a human-readable message.
+ */
+export async function parseYouTubeError(res: Response): Promise<string> {
+  try {
+    const data = await res.clone().json();
+    const reason = data?.error?.errors?.[0]?.reason ?? "";
+    const message = data?.error?.message ?? "";
+    if (res.status === 403) {
+      if (reason === "quotaExceeded" || reason === "dailyLimitExceeded") {
+        return "All API keys have hit their daily quota. Try again after midnight Pacific Time.";
+      }
+      if (reason === "keyInvalid" || reason === "forbidden") {
+        return "API key is invalid or restricted. Check Google Cloud Console.";
+      }
+      return message || "API key error (403). Check Google Cloud Console.";
+    }
+    if (res.status === 400) {
+      return message || "Bad request (400). Check API parameters.";
+    }
+    return message || `YouTube API error (${res.status}).`;
+  } catch {
+    return `YouTube API error (${res.status}). Check your network.`;
+  }
+}
+
+/**
  * Tries to fetch a URL with automatic API key fallback.
  * If the response indicates quota exceeded or forbidden, rotates to the next key and retries.
  */
@@ -43,20 +69,26 @@ export async function fetchWithKeyFallback(
   buildUrl: (key: string) => string,
 ): Promise<Response> {
   const startIndex = activeKeyIndex;
+  let lastRes: Response | null = null;
   for (let attempt = 0; attempt < YOUTUBE_API_KEYS.length; attempt++) {
     const key = YOUTUBE_API_KEYS[activeKeyIndex];
     const url = buildUrl(key);
-    const res = await fetch(url);
-    if (res.ok) return res;
-    // 403 = quota exceeded / key invalid; try next key
-    if (res.status === 403 || res.status === 400) {
-      activeKeyIndex = (activeKeyIndex + 1) % YOUTUBE_API_KEYS.length;
-      if (activeKeyIndex === startIndex) break; // all keys tried
-      continue;
+    try {
+      const res = await fetch(url);
+      if (res.ok) return res;
+      lastRes = res;
+      // 403 = quota exceeded / key invalid; try next key
+      if (res.status === 403) {
+        activeKeyIndex = (activeKeyIndex + 1) % YOUTUBE_API_KEYS.length;
+        if (activeKeyIndex === startIndex) break; // all keys tried
+        continue;
+      }
+      // Other errors — return as-is
+      return res;
+    } catch (_networkErr) {
+      throw new Error("Network error. Check your internet connection.");
     }
-    // Other errors — return as-is
-    return res;
   }
-  // All keys exhausted, return last failed response by re-fetching with current key
-  return fetch(buildUrl(YOUTUBE_API_KEYS[activeKeyIndex]));
+  // All keys exhausted — return last failed response
+  return lastRes ?? fetch(buildUrl(YOUTUBE_API_KEYS[activeKeyIndex]));
 }

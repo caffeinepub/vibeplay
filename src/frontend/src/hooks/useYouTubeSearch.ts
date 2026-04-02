@@ -4,6 +4,7 @@ import {
   YOUTUBE_API_BASE,
   YOUTUBE_API_KEY,
   fetchWithKeyFallback,
+  parseYouTubeError,
 } from "../constants";
 import { MOCK_TRACKS } from "../data/mockData";
 import type { Track } from "../types";
@@ -54,7 +55,7 @@ async function fetchVideoDetails(ids: string[]): Promise<RawVideoItem[]> {
     url.searchParams.set("key", key);
     return url.toString();
   });
-  if (!res.ok) throw new Error("Details fetch failed");
+  if (!res.ok) throw new Error(await parseYouTubeError(res));
   const data = await res.json();
   return data.items as RawVideoItem[];
 }
@@ -97,7 +98,7 @@ export function useYouTubeSearch() {
         searchUrl.searchParams.set("key", key);
         return searchUrl.toString();
       });
-      if (!searchRes.ok) throw new Error("Search failed");
+      if (!searchRes.ok) throw new Error(await parseYouTubeError(searchRes));
       const searchData = await searchRes.json();
       const videoIds: string[] = searchData.items.map(
         (item: { id: { videoId: string } }) => item.id.videoId,
@@ -169,7 +170,11 @@ export function useYouTubeSearch() {
       setResults(merged);
       setHasVibeResults(vibeTracks.length > 0);
     } catch (err) {
-      setError("Search failed. Check your API key or network.");
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Search failed. Check your network.";
+      setError(msg);
       console.error(err);
     } finally {
       setIsLoading(false);

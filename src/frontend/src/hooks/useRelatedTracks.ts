@@ -20,6 +20,31 @@ function parseDuration(iso: string): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** Build a related-song search query from a track title.
+ *  Strips noise words, keeps keywords for vibe matching.
+ */
+function buildRelatedQuery(title: string, channelName: string): string {
+  // Remove common noise: brackets, featuring info, official video/audio, etc.
+  const clean = title
+    .replace(/\(.*?\)/g, "")
+    .replace(/\[.*?\]/g, "")
+    .replace(/ft\.?|feat\.?|official|video|audio|lyrics|full|hd|hq/gi, "")
+    .replace(/[|\-–—]/g, " ")
+    .trim();
+
+  // Try to extract the channel/artist name as context
+  const artist = channelName
+    .replace(/VEVO|Records|Music|Official|Channel/gi, "")
+    .trim()
+    .split(" ")
+    .slice(0, 2)
+    .join(" ");
+
+  // Build query: artist + cleaned title keywords
+  const combined = `${artist} ${clean}`.trim();
+  return combined.length > 5 ? combined : clean;
+}
+
 export function useRelatedTracks(track: Track | null) {
   const [relatedTracks, setRelatedTracks] = useState<Track[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -53,16 +78,21 @@ export function useRelatedTracks(track: Track | null) {
       }
 
       try {
+        // Build a query from the current track (relatedToVideoId was deprecated by YouTube in Aug 2023)
+        const relatedQuery = buildRelatedQuery(track.title, track.channelName);
+
         const searchRes = await fetchWithKeyFallback((key) => {
           const searchUrl = new URL(`${YOUTUBE_API_BASE}/search`);
           searchUrl.searchParams.set("part", "snippet");
-          searchUrl.searchParams.set("relatedToVideoId", track.id);
+          searchUrl.searchParams.set("q", relatedQuery);
           searchUrl.searchParams.set("type", "video");
-          searchUrl.searchParams.set("maxResults", "10");
+          searchUrl.searchParams.set("videoCategoryId", "10"); // Music
+          searchUrl.searchParams.set("maxResults", "12");
           searchUrl.searchParams.set("key", key);
           return searchUrl.toString();
         });
-        if (!searchRes.ok) throw new Error("Related videos fetch failed");
+
+        if (!searchRes.ok) throw new Error("Related videos search failed");
         const searchData = await searchRes.json();
 
         const videoIds: string[] = (searchData.items ?? [])
