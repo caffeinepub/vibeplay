@@ -17,7 +17,7 @@ export const YOUTUBE_API_KEY = YOUTUBE_API_KEYS[0];
 export const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
 // Maximum number of search results to fetch
-export const MAX_SEARCH_RESULTS = 7;
+export const MAX_SEARCH_RESULTS = 10;
 
 // LocalStorage keys
 export const LS_FAVORITES = "vibeplay_favorites";
@@ -25,6 +25,10 @@ export const LS_RECENT_SEARCHES = "vibeplay_recent_searches";
 export const LS_QUEUE = "vibeplay_queue";
 export const LS_CONTINUE_LISTENING = "vibeplay_continue_listening";
 export const LS_PLAYLISTS = "vibeplay_playlists";
+export const LS_BEHAVIOR_EVENTS = "vibeplay_behavior_events";
+export const LS_USER_PREFERENCES = "vibeplay_user_preferences";
+export const LS_RECOMMENDATION_CACHE = "vibeplay_rec_cache";
+export const LS_INTERESTS_SET = "vibeplay_interests_set";
 
 // Max recent searches to store
 export const MAX_RECENT_SEARCHES = 10;

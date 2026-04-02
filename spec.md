@@ -1,47 +1,46 @@
-# VibePlay
+# VibePlay — Language & Mood Filter Bar
 
 ## Current State
-VibePlay is a mobile-first music streaming web app using YouTube API. It has:
-- Home, Search, Player, Library tabs
-- Favorites and playlists stored in localStorage (no user accounts)
-- 7 YouTube API keys in rotation with caching
-- Greeting hardcoded as "Good morning, Deepak"
-- TrackItem with heart button tied to localStorage favorites
-- LibraryScreen showing localStorage favorites and playlists
-- Empty Motoko backend (`actor {}`)
+- HomeScreen has `InterestPicker` (cold-start modal) with genres: Bollywood, Punjabi, Pop, Hip-Hop, Chill, EDM, Rock, Devotional
+- No persistent language/mood filter bar on home screen
+- Mood categories shown at bottom of home screen as horizontal scrollable cards (from `MOOD_CATEGORIES` in `mockData.ts`)
+- `useRecommendationEngine` has `setInterests(genres: string[])` which accepts tag strings
+- SearchScreen already groups results by detected language/type label
+- `detectTrackMeta` utility detects language labels for search result grouping
 
 ## Requested Changes (Diff)
 
 ### Add
-- User signup/login system (email + password)
-- Motoko backend: users, liked songs, playlists, playlist songs stored per user
-- Password hashing (SHA-256 via Web Crypto API on frontend before sending)
-- Persistent session (stored in localStorage as userId + sessionToken)
-- LoginScreen component (toggle between login and signup)
-- Auth context/hook (useAuth) exposing currentUser, login, signup, logout
-- After login: greeting updates to "Good morning, [username]" (username = email prefix)
-- Heart/favorite actions: if not logged in, prompt login instead of saving
-- Playlist create/add: if not logged in, prompt login instead of saving
-- Library: if not logged in, show login prompt; if logged in, show user's server-side data
-- "Made by Deepak Chahal" attribution tag in home screen footer
-- Developer tag displayed in HomeScreen footer area
+- **Persistent scrollable filter chip bar** on the home screen, displayed below the greeting and above "Continue Listening" / recommendation sections
+- **Languages chips**: Hindi, Haryanvi, Punjabi, Bollywood
+- **Mood chips**: Romantic, Sad, Party, Chill, Workout
+- Multiple chips selectable simultaneously (e.g., Hindi + Romantic)
+- Selecting a chip triggers YouTube search/recommendations for that language or mood on the home screen
+- Selected chips visually highlighted (green accent)
+- Haryanvi added to `InterestPicker` genre list alongside existing genres
+- Haryanvi added as detectable language in `detectTrackMeta` utility
+- When chips are selected, the RecommendationFeed shows filtered/themed content for that selection
+- Filter state stored in localStorage so it persists across page reloads
 
 ### Modify
-- App.tsx: integrate AuthContext, conditionally use backend vs localStorage for likes/playlists
-- HomeScreen: accept optional username prop, show "Good morning, [username]" after login
-- LibraryScreen: show login gate if user not logged in; show backend data when logged in
-- TrackItem: heart button shows login prompt if user not authenticated
-- useLocalStorage hooks remain for guests; backend hooks used for logged-in users
-- Motoko main.mo: implement full user auth + data storage
+- `HomeScreen.tsx` — add the filter chip bar between greeting and Continue Listening section; pass selected filters down or use shared state
+- `InterestPicker.tsx` — add Haryanvi (`{ name: "Haryanvi", emoji: "🎵", tag: "haryanvi" }`) to `GENRES` array, increase MAX_SELECT to 4
+- `detectTrackMeta` utility — add Haryanvi keywords to language detection logic
+- `useRecommendationEngine.ts` — when active filters change, trigger a YouTube search for those filter keywords and inject results as a new recommendation section ("Hindi Mix", "Haryanvi Hits", "Romantic Vibes", etc.)
+- `App.tsx` — wire up `activeFilters` state from HomeScreen to recommendation engine
 
 ### Remove
-- Nothing removed; localStorage fallback remains for guests
+- Nothing removed
 
 ## Implementation Plan
-1. Generate Motoko backend with: registerUser, loginUser, getLikedSongs, likeSong, unlikeSong, getPlaylists, createPlaylist, deletePlaylist, addSongToPlaylist, removeSongFromPlaylist
-2. Create useAuth hook connecting to backend for auth state
-3. Create LoginScreen component (email/password form, toggle signup/login)
-4. Update App.tsx to wrap with auth context and wire up backend data for logged-in users
-5. Update HomeScreen to show username in greeting and "made by Deepak Chahal" footer tag
-6. Update LibraryScreen to show login gate or backend-powered data
-7. Update TrackItem to guard heart/playlist actions behind auth
+1. Add Haryanvi to `InterestPicker.tsx` GENRES list
+2. Add Haryanvi detection keywords to `detectTrackMeta` utility
+3. Create `FilterChipBar` component: scrollable chip bar with language + mood chips, multi-select, green highlight for selected
+4. Add `activeFilters` state to `HomeScreen.tsx` (or `App.tsx`), persisted in localStorage
+5. Render `FilterChipBar` in `HomeScreen.tsx` below the greeting section
+6. In `useRecommendationEngine.ts`, add a method `setActiveFilters(filters: string[])` that:
+   - When filters are selected, fires a YouTube search for the filter keywords
+   - Injects results as a top-priority recommendation section titled after the selected filter(s)
+   - Caches results for 1 hour per filter combo
+   - When no filters selected, falls back to normal recommendation sections
+7. Wire `activeFilters` from HomeScreen → App → recommendationEngine.setActiveFilters

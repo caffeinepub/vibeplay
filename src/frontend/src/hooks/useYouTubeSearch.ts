@@ -9,6 +9,9 @@ import {
 import { MOCK_TRACKS } from "../data/mockData";
 import type { Track } from "../types";
 import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
+import { fuzzySearch } from "../utils/fuzzySearch";
+import { rankSearchResults } from "../utils/searchRanker";
+import { deduplicateVersions } from "../utils/versionDedup";
 
 const IS_DEMO = !YOUTUBE_API_KEY || YOUTUBE_API_KEY.includes("placeholder");
 
@@ -67,6 +70,7 @@ export function useYouTubeSearch() {
   const [error, setError] = useState<string | null>(null);
   const [lastQuery, setLastQuery] = useState("");
   const [hasVibeResults, setHasVibeResults] = useState(false);
+  const [isFuzzyResult, setIsFuzzyResult] = useState(false);
 
   const search = useCallback(async (query: string) => {
     if (!query.trim()) return;
@@ -74,6 +78,7 @@ export function useYouTubeSearch() {
     setIsLoading(true);
     setError(null);
     setHasVibeResults(false);
+    setIsFuzzyResult(false);
 
     if (IS_DEMO) {
       await new Promise((r) => setTimeout(r, 600));
@@ -82,7 +87,10 @@ export function useYouTubeSearch() {
           t.title.toLowerCase().includes(query.toLowerCase()) ||
           t.channelName.toLowerCase().includes(query.toLowerCase()),
       );
-      setResults(filtered.length > 0 ? filtered : MOCK_TRACKS);
+      const demoResults = filtered.length > 0 ? filtered : MOCK_TRACKS;
+      const ranked = rankSearchResults(demoResults, query);
+      const deduped = deduplicateVersions(ranked);
+      setResults(deduped);
       setIsLoading(false);
       return;
     }
@@ -179,11 +187,32 @@ export function useYouTubeSearch() {
 
       const merged = [...nameTracks, ...vibeTracks];
 
-      // Save to cache
-      cacheSet(ck, { tracks: merged, hasVibe: vibeTracks.length > 0 });
+      // Rank by relevance score
+      let finalResults = rankSearchResults(merged, query);
+      // Deduplicate song versions
+      finalResults = deduplicateVersions(finalResults);
 
-      setResults(merged);
+      // If too few ranked results, add fuzzy search matches
+      let usedFuzzy = false;
+      if (finalResults.length < 3 && merged.length >= 3) {
+        const fuzzyResults = fuzzySearch(merged, query);
+        const fuzzyDeduped = deduplicateVersions(fuzzyResults);
+        const existingIds = new Set(finalResults.map((t) => t.id));
+        for (const t of fuzzyDeduped) {
+          if (!existingIds.has(t.id)) {
+            finalResults.push(t);
+            existingIds.add(t.id);
+          }
+        }
+        usedFuzzy = true;
+      }
+
+      // Save to cache
+      cacheSet(ck, { tracks: finalResults, hasVibe: vibeTracks.length > 0 });
+
+      setResults(finalResults);
       setHasVibeResults(vibeTracks.length > 0);
+      setIsFuzzyResult(usedFuzzy);
     } catch (err) {
       const msg =
         err instanceof Error
@@ -204,5 +233,6 @@ export function useYouTubeSearch() {
     search,
     isDemoMode: IS_DEMO,
     hasVibeResults,
+    isFuzzyResult,
   };
 }

@@ -7,6 +7,11 @@ import {
 import { MOCK_TRACKS } from "../data/mockData";
 import type { Track } from "../types";
 import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
+import {
+  applyExplorationFactor,
+  deduplicateVersions,
+  enforceArtistDiversity,
+} from "../utils/versionDedup";
 
 const IS_DEMO = !YOUTUBE_API_KEY || YOUTUBE_API_KEY.includes("placeholder");
 
@@ -221,7 +226,7 @@ export function useRelatedTracks(track: Track | null) {
         ]);
         const historyTracks = getHistoryBasedTracks(primaryIdSet, 3);
 
-        // ── Step 5: Deduplicate, filter out current track, limit to 8 ──
+        // ── Step 5: Combine ──
         const combined = [...primaryTracks, ...historyTracks];
         const seen = new Set<string>([track.id]);
         const result: Track[] = [];
@@ -229,14 +234,28 @@ export function useRelatedTracks(track: Track | null) {
           if (!seen.has(t.id)) {
             seen.add(t.id);
             result.push(t);
-            if (result.length >= 8) break;
           }
         }
 
-        // Save to cache
-        cacheSet(ck, result);
+        // ── Step 6: Smart dedup, diversity, exploration ──
+        // Remove duplicate versions (remix/slowed/lofi etc)
+        let smartResult = deduplicateVersions(result);
+        // Enforce artist diversity (max 2 per artist)
+        smartResult = enforceArtistDiversity(smartResult, 2);
+        // Apply 70/30 exploration factor using history pool
+        const historyPool = getHistoryBasedTracks(primaryIdSet, 5);
+        smartResult = applyExplorationFactor(
+          smartResult,
+          historyPool,
+          Math.min(8, smartResult.length + 3),
+        );
+        // Cap at 8
+        smartResult = smartResult.slice(0, 8);
 
-        if (!cancelled) setRelatedTracks(result);
+        // Save to cache
+        cacheSet(ck, smartResult);
+
+        if (!cancelled) setRelatedTracks(smartResult);
       } catch (err) {
         console.error("Related tracks fetch failed:", err);
         if (!cancelled) setRelatedTracks([]);

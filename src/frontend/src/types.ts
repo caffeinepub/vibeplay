@@ -57,3 +57,29 @@ export interface YouTubeSearchResult {
     publishedAt: string;
   };
 }
+
+export interface BehaviorEvent {
+  type: "play" | "skip" | "like" | "unlike" | "search";
+  videoId?: string;
+  query?: string;
+  tags?: string[];
+  timestamp: number;
+  title?: string;
+  channelName?: string;
+}
+
+export interface UserPreferences {
+  tagScores: Record<string, number>;
+  boostedIds: string[];
+  downrankedIds: string[];
+  interests: string[];
+  totalPlays: number;
+}
+
+export interface RecommendationSection {
+  id: string;
+  title: string;
+  subtitle?: string;
+  tracks: Track[];
+  isLoading: boolean;
+}

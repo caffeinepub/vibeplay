@@ -1,6 +1,6 @@
 import { Toaster } from "@/components/ui/sonner";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { BottomNav } from "./components/BottomNav";
 import { MiniPlayer } from "./components/MiniPlayer";
@@ -11,6 +11,7 @@ import {
   usePlaylists,
   useRecentSearches,
 } from "./hooks/useLocalStorage";
+import { useRecommendationEngine } from "./hooks/useRecommendationEngine";
 import { useRelatedTracks } from "./hooks/useRelatedTracks";
 import { useUserData } from "./hooks/useUserData";
 import { useYouTubePlayer } from "./hooks/useYouTubePlayer";
@@ -21,6 +22,19 @@ import { PlayerScreen } from "./screens/PlayerScreen";
 import { SearchScreen } from "./screens/SearchScreen";
 import type { RepeatMode, TabName, Track } from "./types";
 
+const LS_ACTIVE_FILTERS = "vibeplay_active_filters";
+
+function readSavedFilters(): string[] {
+  try {
+    const raw = localStorage.getItem(LS_ACTIVE_FILTERS);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabName>("home");
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
@@ -28,6 +42,13 @@ export default function App() {
   const [repeat, setRepeat] = useState<RepeatMode>("off");
   const [pendingSearch, setPendingSearch] = useState("");
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<string[]>(() =>
+    readSavedFilters(),
+  );
+
+  // Ref to track when a song started playing (for skip detection)
+  const playStartTimeRef = useRef<number | null>(null);
+  const prevTrackIdRef = useRef<string | null>(null);
 
   const { currentUser, sessionToken, isLoggedIn, login, register, logout } =
     useAuth();
@@ -43,6 +64,9 @@ export default function App() {
 
   // Backend user data
   const userData = useUserData(sessionToken, isLoggedIn);
+
+  // Smart recommendation engine (localStorage + YouTube API)
+  const recommendationEngine = useRecommendationEngine();
 
   useEffect(() => {
     player.onTrackChange((track) => {
@@ -60,13 +84,35 @@ export default function App() {
 
   const handlePlay = useCallback(
     (track: Track, queue: Track[] = [track]) => {
+      // Skip detection: if previous track was playing < 10s, count as skip
+      if (
+        prevTrackIdRef.current &&
+        prevTrackIdRef.current !== track.id &&
+        playStartTimeRef.current !== null
+      ) {
+        const elapsed = (Date.now() - playStartTimeRef.current) / 1000;
+        if (elapsed < 10) {
+          recommendationEngine.recordSkip(prevTrackIdRef.current);
+        }
+      }
+
+      prevTrackIdRef.current = track.id;
+      playStartTimeRef.current = Date.now();
+
       const queueIndex = queue.findIndex((t) => t.id === track.id);
       setCurrentTrack(track);
       addToHistory(track);
       userData.cacheTrack(track);
+      recommendationEngine.recordPlay(track);
       player.playTrack(track, queue, queueIndex >= 0 ? queueIndex : 0);
     },
-    [player.playTrack, addToHistory, userData.cacheTrack],
+    [
+      player.playTrack,
+      addToHistory,
+      userData.cacheTrack,
+      recommendationEngine.recordPlay,
+      recommendationEngine.recordSkip,
+    ],
   );
 
   useEffect(() => {
@@ -91,18 +137,33 @@ export default function App() {
       if (isLoggedIn) {
         const alreadyLiked = userData.isLiked(track.id);
         await userData.toggleLike(track);
+        if (alreadyLiked) {
+          recommendationEngine.recordUnlike(track.id);
+        } else {
+          recommendationEngine.recordLike(track);
+        }
         toast.success(
           alreadyLiked ? "Removed from favorites" : "Added to favorites",
         );
       } else {
         if (isFavorite(track.id)) {
           removeFavorite(track.id);
+          recommendationEngine.recordUnlike(track.id);
         } else {
           addFavorite(track);
+          recommendationEngine.recordLike(track);
         }
       }
     },
-    [isLoggedIn, userData, isFavorite, addFavorite, removeFavorite],
+    [
+      isLoggedIn,
+      userData,
+      isFavorite,
+      addFavorite,
+      removeFavorite,
+      recommendationEngine.recordLike,
+      recommendationEngine.recordUnlike,
+    ],
   );
 
   const handleIsFavorite = useCallback(
@@ -157,6 +218,24 @@ export default function App() {
     await logout();
     toast.success("Logged out");
   }, [logout]);
+
+  const handleSearch = useCallback(
+    (query: string) => {
+      if (query.trim()) {
+        recommendationEngine.recordSearch(query.trim());
+      }
+      setPendingSearch(query);
+    },
+    [recommendationEngine.recordSearch],
+  );
+
+  const handleFiltersChange = useCallback(
+    (filters: string[]) => {
+      setActiveFilters(filters);
+      recommendationEngine.setActiveFilters(filters);
+    },
+    [recommendationEngine.setActiveFilters],
+  );
 
   // Liked tracks list for library: backend video IDs resolved to cached tracks
   const likedTracks = userData.likedVideoIds
@@ -213,12 +292,19 @@ export default function App() {
                 recentSearches={recentSearches}
                 currentTrack={currentTrack}
                 onPlay={handlePlay}
-                onSearch={setPendingSearch}
+                onSearch={handleSearch}
                 onNavigate={(tab) => setActiveTab(tab)}
                 username={currentUser?.username}
+                userId={currentUser?.id}
                 isLoggedIn={isLoggedIn}
                 onShowLogin={handleShowLogin}
                 onLogout={handleLogout}
+                recommendationSections={recommendationEngine.sections}
+                onLoadMoreRecommendations={recommendationEngine.loadMore}
+                needsOnboarding={recommendationEngine.needsOnboarding}
+                onSetInterests={recommendationEngine.setInterests}
+                activeFilters={activeFilters}
+                onFiltersChange={handleFiltersChange}
               />
             </motion.div>
           )}

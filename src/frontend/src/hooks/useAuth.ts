@@ -24,6 +24,12 @@ export function useAuth() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const initializedRef = useRef(false);
+  const actorRef = useRef(actor);
+
+  // Keep actorRef in sync with latest actor value
+  useEffect(() => {
+    actorRef.current = actor;
+  }, [actor]);
 
   // Restore session on mount
   useEffect(() => {
@@ -55,15 +61,32 @@ export function useAuth() {
       });
   }, [actor, isFetching]);
 
+  // Helper: wait up to 8 seconds for actor to be ready
+  const waitForActor =
+    useCallback(async (): Promise<FullBackendInterface | null> => {
+      if (actorRef.current)
+        return actorRef.current as unknown as FullBackendInterface;
+      for (let i = 0; i < 16; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        if (actorRef.current)
+          return actorRef.current as unknown as FullBackendInterface;
+      }
+      return null;
+    }, []);
+
   const login = useCallback(
     async (
       email: string,
       password: string,
     ): Promise<{ success: boolean; error?: string }> => {
-      if (!actor) return { success: false, error: "Not connected" };
       try {
+        const backend = await waitForActor();
+        if (!backend)
+          return {
+            success: false,
+            error: "Service unavailable. Please try again.",
+          };
         const passwordHash = await hashPassword(password);
-        const backend = actor as unknown as FullBackendInterface;
         const result = await backend.login(email, passwordHash);
         if ("ok" in result) {
           const token = result.ok;
@@ -78,7 +101,7 @@ export function useAuth() {
         return { success: false, error: String(e) };
       }
     },
-    [actor],
+    [waitForActor],
   );
 
   const register = useCallback(
@@ -86,10 +109,14 @@ export function useAuth() {
       email: string,
       password: string,
     ): Promise<{ success: boolean; error?: string }> => {
-      if (!actor) return { success: false, error: "Not connected" };
       try {
+        const backend = await waitForActor();
+        if (!backend)
+          return {
+            success: false,
+            error: "Service unavailable. Please try again.",
+          };
         const passwordHash = await hashPassword(password);
-        const backend = actor as unknown as FullBackendInterface;
         const result = await backend.register(email, passwordHash);
         if ("ok" in result) {
           const token = result.ok;
@@ -104,7 +131,7 @@ export function useAuth() {
         return { success: false, error: String(e) };
       }
     },
-    [actor],
+    [waitForActor],
   );
 
   const logout = useCallback(async () => {

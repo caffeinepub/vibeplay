@@ -1,3 +1,4 @@
+import Array "mo:core/Array";
 import Int "mo:core/Int";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
@@ -6,15 +7,15 @@ import Time "mo:core/Time";
 
 actor VibePlay {
 
-  // ── Types ──────────────────────────────────────────────────────
+  // ── Types ────────────────────────────────────────────
 
   type UserId = Nat;
 
   type User = {
-    id        : UserId;
-    email     : Text;
-    passHash  : Text;
-    username  : Text;
+    id       : UserId;
+    email    : Text;
+    passHash : Text;
+    username : Text;
   };
 
   type Session = {
@@ -33,7 +34,7 @@ actor VibePlay {
   type AuthResult = { #ok : Text; #err : Text };
   type Result     = { #ok; #err : Text };
 
-  // ── Stable state (Map is natively stable) ─────────────────────
+  // ── State (stable via --default-persistent-actors) ───
 
   var nextUserId     : Nat = 1;
   var nextPlaylistId : Nat = 1;
@@ -43,20 +44,22 @@ actor VibePlay {
   let liked     : Map.Map<Nat, [Text]>   = Map.empty();
   let playlists : Map.Map<Nat, Playlist> = Map.empty();
 
-  // ── Helpers ─────────────────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────
 
   func makeToken(email : Text, ts : Int) : Text {
     email # Int.abs(ts).toText();
   };
 
-  func getSession(token : Text) : ?Session {
-    sessions.get(token);
-  };
-
   func emailPrefix(email : Text) : Text {
     let parts = email.split(#char '@');
-    let arr   = parts.toArray();
-    if (arr.size() > 0) arr[0] else email;
+    switch (parts.next()) {
+      case (?prefix) { prefix };
+      case null { email };
+    };
+  };
+
+  func getSessionOpt(token : Text) : ?Session {
+    sessions.get(token);
   };
 
   func findUserById(uid : Nat) : ?User {
@@ -74,7 +77,14 @@ actor VibePlay {
     };
   };
 
-  // ── Auth ────────────────────────────────────────────────────────
+  func arrayContains(arr : [Text], val : Text) : Bool {
+    for (item in arr.vals()) {
+      if (item == val) return true;
+    };
+    false;
+  };
+
+  // ── Auth ─────────────────────────────────────────────
 
   public func register(email : Text, passHash : Text) : async AuthResult {
     if (email == "" or passHash == "") return #err "Email and password required";
@@ -110,7 +120,7 @@ actor VibePlay {
   };
 
   public query func getMe(token : Text) : async ?{ id : UserId; email : Text; username : Text } {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { null };
       case (?sess) {
         switch (findUserById(sess.userId)) {
@@ -121,23 +131,21 @@ actor VibePlay {
     };
   };
 
-  // ── Liked Songs ─────────────────────────────────────────────────
+  // ── Liked Songs ──────────────────────────────────────
 
   public query func getLikedSongs(token : Text) : async { #ok : [Text]; #err : Text } {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { #err "Not authenticated" };
       case (?sess) { #ok (getLikedForUser(sess.userId)) };
     };
   };
 
   public func likeSong(token : Text, videoId : Text) : async Result {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { #err "Not authenticated" };
       case (?sess) {
         let current = getLikedForUser(sess.userId);
-        var found = false;
-        for (v in current.values()) { if (v == videoId) { found := true } };
-        if (not found) {
+        if (not arrayContains(current, videoId)) {
           liked.add(sess.userId, current.concat([videoId]));
         };
         #ok;
@@ -146,36 +154,35 @@ actor VibePlay {
   };
 
   public func unlikeSong(token : Text, videoId : Text) : async Result {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { #err "Not authenticated" };
       case (?sess) {
         let current = getLikedForUser(sess.userId);
-        liked.add(sess.userId, current.filter(func(v : Text) : Bool = v != videoId));
+        liked.add(sess.userId, current.filter(func(v : Text) : Bool { v != videoId }));
         #ok;
       };
     };
   };
 
-  // ── Playlists ──────────────────────────────────────────────────
+  // ── Playlists ────────────────────────────────────────
 
   public query func getPlaylists(token : Text) : async { #ok : [{ id : Nat; name : Text; videoIds : [Text] }]; #err : Text } {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { #err "Not authenticated" };
       case (?sess) {
-        let result = playlists.values().toArray().filterMap(
-          func(pl : Playlist) : ?{ id : Nat; name : Text; videoIds : [Text] } {
-            if (pl.userId == sess.userId)
-              ?{ id = pl.id; name = pl.name; videoIds = pl.videoIds }
-            else null;
-          },
-        );
+        var result : [{ id : Nat; name : Text; videoIds : [Text] }] = [];
+        for ((_, pl) in playlists.entries()) {
+          if (pl.userId == sess.userId) {
+            result := result.concat([{ id = pl.id; name = pl.name; videoIds = pl.videoIds }]);
+          };
+        };
         #ok result;
       };
     };
   };
 
   public func createPlaylist(token : Text, name : Text) : async { #ok : Nat; #err : Text } {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { #err "Not authenticated" };
       case (?sess) {
         if (name == "") return #err "Playlist name required";
@@ -188,7 +195,7 @@ actor VibePlay {
   };
 
   public func deletePlaylist(token : Text, playlistId : Nat) : async Result {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { #err "Not authenticated" };
       case (?sess) {
         switch (playlists.get(playlistId)) {
@@ -204,17 +211,20 @@ actor VibePlay {
   };
 
   public func addSongToPlaylist(token : Text, playlistId : Nat, videoId : Text) : async Result {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { #err "Not authenticated" };
       case (?sess) {
         switch (playlists.get(playlistId)) {
           case null { #err "Playlist not found" };
           case (?pl) {
             if (pl.userId != sess.userId) return #err "Not your playlist";
-            var found = false;
-            for (v in pl.videoIds.values()) { if (v == videoId) { found := true } };
-            if (not found) {
-              playlists.add(playlistId, { id = pl.id; userId = pl.userId; name = pl.name; videoIds = pl.videoIds.concat([videoId]) });
+            if (not arrayContains(pl.videoIds, videoId)) {
+              playlists.add(playlistId, {
+                id = pl.id;
+                userId = pl.userId;
+                name = pl.name;
+                videoIds = pl.videoIds.concat([videoId]);
+              });
             };
             #ok;
           };
@@ -224,14 +234,19 @@ actor VibePlay {
   };
 
   public func removeSongFromPlaylist(token : Text, playlistId : Nat, videoId : Text) : async Result {
-    switch (getSession(token)) {
+    switch (getSessionOpt(token)) {
       case null { #err "Not authenticated" };
       case (?sess) {
         switch (playlists.get(playlistId)) {
           case null { #err "Playlist not found" };
           case (?pl) {
             if (pl.userId != sess.userId) return #err "Not your playlist";
-            playlists.add(playlistId, { id = pl.id; userId = pl.userId; name = pl.name; videoIds = pl.videoIds.filter(func(v : Text) : Bool = v != videoId) });
+            playlists.add(playlistId, {
+              id = pl.id;
+              userId = pl.userId;
+              name = pl.name;
+              videoIds = pl.videoIds.filter(func(v : Text) : Bool { v != videoId });
+            });
             #ok;
           };
         };

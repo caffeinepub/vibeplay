@@ -27,17 +27,7 @@ export function useActor() {
 
       const actor = await createActorWithConfig(actorOptions);
       const adminToken = getSecretParameter("caffeineAdminToken") || "";
-      // Only call if the method exists (authorization component scaffold)
-      const actorRecord = actor as unknown as Record<string, unknown>;
-      if (
-        typeof actorRecord._initializeAccessControlWithSecret === "function"
-      ) {
-        await (
-          actorRecord._initializeAccessControlWithSecret as (
-            t: string,
-          ) => Promise<void>
-        )(adminToken);
-      }
+      await actor._initializeAccessControlWithSecret?.(adminToken);
       return actor;
     },
     // Only refetch when identity changes
