@@ -8,6 +8,7 @@ import {
 } from "../constants";
 import { MOCK_TRACKS } from "../data/mockData";
 import type { Track } from "../types";
+import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
 
 const IS_DEMO = !YOUTUBE_API_KEY || YOUTUBE_API_KEY.includes("placeholder");
 
@@ -86,6 +87,16 @@ export function useYouTubeSearch() {
       return;
     }
 
+    // Check cache first
+    const ck = cacheKey("search", query.trim().toLowerCase());
+    const cached = cacheGet<{ tracks: Track[]; hasVibe: boolean }>(ck);
+    if (cached) {
+      setResults(cached.tracks);
+      setHasVibeResults(cached.hasVibe);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       // Step 1: name-based search
       const searchRes = await fetchWithKeyFallback((key) => {
@@ -141,7 +152,7 @@ export function useYouTubeSearch() {
             vibeSearchUrl.searchParams.set("part", "snippet");
             vibeSearchUrl.searchParams.set("q", vibeQuery);
             vibeSearchUrl.searchParams.set("type", "video");
-            vibeSearchUrl.searchParams.set("maxResults", "10");
+            vibeSearchUrl.searchParams.set("maxResults", "5");
             vibeSearchUrl.searchParams.set("videoCategoryId", "10");
             vibeSearchUrl.searchParams.set("key", key);
             return vibeSearchUrl.toString();
@@ -167,6 +178,10 @@ export function useYouTubeSearch() {
       }
 
       const merged = [...nameTracks, ...vibeTracks];
+
+      // Save to cache
+      cacheSet(ck, { tracks: merged, hasVibe: vibeTracks.length > 0 });
+
       setResults(merged);
       setHasVibeResults(vibeTracks.length > 0);
     } catch (err) {

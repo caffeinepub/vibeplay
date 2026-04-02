@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { BottomNav } from "./components/BottomNav";
 import { MiniPlayer } from "./components/MiniPlayer";
 import {
@@ -28,7 +29,8 @@ export default function App() {
   const { favorites, addFavorite, removeFavorite, isFavorite } = useFavorites();
   const { recentSearches, addRecentSearch } = useRecentSearches();
   const { continueListening, addToHistory } = useContinueListening();
-  const { playlists, createPlaylist, deletePlaylist } = usePlaylists();
+  const { playlists, createPlaylist, deletePlaylist, addTrackToPlaylist } =
+    usePlaylists();
   const { relatedTracks, isLoading: isLoadingRelated } =
     useRelatedTracks(currentTrack);
 
@@ -100,6 +102,15 @@ export default function App() {
       handlePlay(track, relatedTracks);
     },
     [handlePlay, relatedTracks],
+  );
+
+  const handleAddToPlaylist = useCallback(
+    (playlistId: string, track: Track) => {
+      addTrackToPlaylist(playlistId, track);
+      const playlist = playlists.find((p) => p.id === playlistId);
+      toast.success(`Added to ${playlist?.name ?? "playlist"}`);
+    },
+    [addTrackToPlaylist, playlists],
   );
 
   return (
@@ -174,6 +185,8 @@ export default function App() {
                 }}
                 onToggleFavorite={handleToggleFavorite}
                 isFavorite={isFavorite}
+                playlists={playlists}
+                onAddToPlaylist={handleAddToPlaylist}
               />
             </motion.div>
           )}
@@ -233,6 +246,7 @@ export default function App() {
                 isFavorite={isFavorite}
                 onCreatePlaylist={createPlaylist}
                 onDeletePlaylist={deletePlaylist}
+                onAddToPlaylist={handleAddToPlaylist}
               />
             </motion.div>
           )}

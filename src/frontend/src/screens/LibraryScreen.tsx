@@ -13,6 +13,7 @@ interface LibraryScreenProps {
   isFavorite: (id: string) => boolean;
   onCreatePlaylist: (name: string) => void;
   onDeletePlaylist: (id: string) => void;
+  onAddToPlaylist?: (playlistId: string, track: Track) => void;
 }
 
 type LibraryTab = "favorites" | "playlists";
@@ -26,6 +27,7 @@ export function LibraryScreen({
   isFavorite,
   onCreatePlaylist,
   onDeletePlaylist,
+  onAddToPlaylist,
 }: LibraryScreenProps) {
   const [activeTab, setActiveTab] = useState<LibraryTab>("favorites");
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
@@ -165,6 +167,8 @@ export function LibraryScreen({
                       isFavorite={isFavorite(track.id)}
                       onPlay={(t) => onPlay(t, favorites)}
                       onToggleFavorite={onToggleFavorite}
+                      playlists={playlists}
+                      onAddToPlaylist={onAddToPlaylist}
                     />
                   ))}
                 </div>

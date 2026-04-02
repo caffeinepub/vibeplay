@@ -39,7 +39,7 @@ export function HomeScreen({
             Home
           </p>
           <h1 className="text-3xl font-bold text-foreground">
-            {getGreeting()}, Alex 👋
+            {getGreeting()}, Deepak 👋
           </h1>
         </motion.div>
       </div>

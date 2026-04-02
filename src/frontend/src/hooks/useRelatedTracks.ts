@@ -6,8 +6,11 @@ import {
 } from "../constants";
 import { MOCK_TRACKS } from "../data/mockData";
 import type { Track } from "../types";
+import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
 
 const IS_DEMO = !YOUTUBE_API_KEY || YOUTUBE_API_KEY.includes("placeholder");
+
+const LS_CONTINUE_LISTENING = "vibeplay_continue_listening";
 
 function parseDuration(iso: string): string {
   const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -20,19 +23,14 @@ function parseDuration(iso: string): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** Build a related-song search query from a track title.
- *  Strips noise words, keeps keywords for vibe matching.
- */
 function buildRelatedQuery(title: string, channelName: string): string {
-  // Remove common noise: brackets, featuring info, official video/audio, etc.
   const clean = title
     .replace(/\(.*?\)/g, "")
     .replace(/\[.*?\]/g, "")
     .replace(/ft\.?|feat\.?|official|video|audio|lyrics|full|hd|hq/gi, "")
-    .replace(/[|\-–—]/g, " ")
+    .replace(/[|\-\u2013\u2014]/g, " ")
     .trim();
 
-  // Try to extract the channel/artist name as context
   const artist = channelName
     .replace(/VEVO|Records|Music|Official|Channel/gi, "")
     .trim()
@@ -40,9 +38,42 @@ function buildRelatedQuery(title: string, channelName: string): string {
     .slice(0, 2)
     .join(" ");
 
-  // Build query: artist + cleaned title keywords
   const combined = `${artist} ${clean}`.trim();
   return combined.length > 5 ? combined : clean;
+}
+
+/**
+ * Reads watch history from localStorage and extracts tracks cached in recommendation cache.
+ * Returns up to `limit` tracks NOT in the excluded ID set — zero extra API calls.
+ */
+function getHistoryBasedTracks(
+  excludeIds: Set<string>,
+  limit: number,
+): Track[] {
+  try {
+    const raw = localStorage.getItem(LS_CONTINUE_LISTENING);
+    if (!raw) return [];
+    const history: Track[] = JSON.parse(raw);
+    const recentHistory = history
+      .filter((t) => !excludeIds.has(t.id))
+      .slice(-5); // last 5 played (excluding current)
+
+    const historyBased: Track[] = [];
+    for (const histTrack of recentHistory) {
+      const cached = cacheGet<Track[]>(cacheKey("related", histTrack.id));
+      if (!cached) continue;
+      for (const t of cached) {
+        if (!excludeIds.has(t.id) && !historyBased.some((x) => x.id === t.id)) {
+          historyBased.push(t);
+          if (historyBased.length >= limit) break;
+        }
+      }
+      if (historyBased.length >= limit) break;
+    }
+    return historyBased;
+  } catch {
+    return [];
+  }
 }
 
 export function useRelatedTracks(track: Track | null) {
@@ -67,55 +98,105 @@ export function useRelatedTracks(track: Track | null) {
       if (!track) return;
       setIsLoading(true);
 
+      // Demo mode
       if (IS_DEMO) {
         await new Promise((r) => setTimeout(r, 700));
         if (cancelled) return;
         const others = MOCK_TRACKS.filter((t) => t.id !== track.id);
         const shuffled = [...others].sort(() => Math.random() - 0.5);
-        setRelatedTracks(shuffled.slice(0, 10));
+        setRelatedTracks(shuffled.slice(0, 8));
         setIsLoading(false);
         return;
       }
 
+      // Check cache first
+      const ck = cacheKey("related", track.id);
+      const cached = cacheGet<Track[]>(ck);
+      if (cached) {
+        if (!cancelled) {
+          setRelatedTracks(cached);
+          setIsLoading(false);
+        }
+        return;
+      }
+
       try {
-        // Build a query from the current track (relatedToVideoId was deprecated by YouTube in Aug 2023)
+        // ── Step 1: Try relatedToVideoId (YouTube's native related videos) ──
+        let primaryIds: string[] = [];
+        let relatedApiWorked = false;
+
+        try {
+          const relatedRes = await fetchWithKeyFallback((key) => {
+            const url = new URL(`${YOUTUBE_API_BASE}/search`);
+            url.searchParams.set("part", "snippet");
+            url.searchParams.set("relatedToVideoId", track.id);
+            url.searchParams.set("type", "video");
+            url.searchParams.set("videoCategoryId", "10");
+            url.searchParams.set("maxResults", "8");
+            url.searchParams.set("key", key);
+            return url.toString();
+          });
+
+          if (relatedRes.ok) {
+            const relatedData = await relatedRes.json();
+            const ids: string[] = (relatedData.items ?? [])
+              .filter((item: { id: { videoId?: string } }) => item.id.videoId)
+              .map((item: { id: { videoId: string } }) => item.id.videoId)
+              .filter((id: string) => id !== track.id);
+            primaryIds = ids;
+            relatedApiWorked = ids.length >= 4;
+          }
+        } catch {
+          // relatedToVideoId not available — fall through to title/artist search
+        }
+
+        // ── Step 2: If relatedToVideoId returned < 4 results, also do title/artist search ──
         const relatedQuery = buildRelatedQuery(track.title, track.channelName);
+        if (!relatedApiWorked) {
+          const searchRes = await fetchWithKeyFallback((key) => {
+            const searchUrl = new URL(`${YOUTUBE_API_BASE}/search`);
+            searchUrl.searchParams.set("part", "snippet");
+            searchUrl.searchParams.set("q", relatedQuery);
+            searchUrl.searchParams.set("type", "video");
+            searchUrl.searchParams.set("videoCategoryId", "10");
+            searchUrl.searchParams.set("maxResults", "8");
+            searchUrl.searchParams.set("key", key);
+            return searchUrl.toString();
+          });
 
-        const searchRes = await fetchWithKeyFallback((key) => {
-          const searchUrl = new URL(`${YOUTUBE_API_BASE}/search`);
-          searchUrl.searchParams.set("part", "snippet");
-          searchUrl.searchParams.set("q", relatedQuery);
-          searchUrl.searchParams.set("type", "video");
-          searchUrl.searchParams.set("videoCategoryId", "10"); // Music
-          searchUrl.searchParams.set("maxResults", "12");
-          searchUrl.searchParams.set("key", key);
-          return searchUrl.toString();
-        });
+          if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            const fallbackIds: string[] = (searchData.items ?? [])
+              .filter((item: { id: { videoId?: string } }) => item.id.videoId)
+              .map((item: { id: { videoId: string } }) => item.id.videoId)
+              .filter((id: string) => id !== track.id);
 
-        if (!searchRes.ok) throw new Error("Related videos search failed");
-        const searchData = await searchRes.json();
+            // Merge unique IDs — relatedToVideoId results take priority
+            const merged = [...primaryIds];
+            for (const id of fallbackIds) {
+              if (!merged.includes(id)) merged.push(id);
+            }
+            primaryIds = merged;
+          }
+        }
 
-        const videoIds: string[] = (searchData.items ?? [])
-          .filter((item: { id: { videoId?: string } }) => item.id.videoId)
-          .map((item: { id: { videoId: string } }) => item.id.videoId)
-          .filter((id: string) => id !== track.id);
-
-        if (videoIds.length === 0) {
+        if (primaryIds.length === 0) {
           if (!cancelled) setRelatedTracks([]);
           return;
         }
 
+        // ── Step 3: Fetch video details in a single API call ──
         const detailsRes = await fetchWithKeyFallback((key) => {
           const detailsUrl = new URL(`${YOUTUBE_API_BASE}/videos`);
           detailsUrl.searchParams.set("part", "contentDetails,snippet");
-          detailsUrl.searchParams.set("id", videoIds.join(","));
+          detailsUrl.searchParams.set("id", primaryIds.join(","));
           detailsUrl.searchParams.set("key", key);
           return detailsUrl.toString();
         });
         if (!detailsRes.ok) throw new Error("Details fetch failed");
         const detailsData = await detailsRes.json();
 
-        const tracks: Track[] = (detailsData.items ?? []).map(
+        const primaryTracks: Track[] = (detailsData.items ?? []).map(
           (item: {
             id: string;
             snippet: {
@@ -133,7 +214,29 @@ export function useRelatedTracks(track: Track | null) {
           }),
         );
 
-        if (!cancelled) setRelatedTracks(tracks.slice(0, 10));
+        // ── Step 4: Mix in history-based tracks (zero extra API calls) ──
+        const primaryIdSet = new Set([
+          track.id,
+          ...primaryTracks.map((t) => t.id),
+        ]);
+        const historyTracks = getHistoryBasedTracks(primaryIdSet, 3);
+
+        // ── Step 5: Deduplicate, filter out current track, limit to 8 ──
+        const combined = [...primaryTracks, ...historyTracks];
+        const seen = new Set<string>([track.id]);
+        const result: Track[] = [];
+        for (const t of combined) {
+          if (!seen.has(t.id)) {
+            seen.add(t.id);
+            result.push(t);
+            if (result.length >= 8) break;
+          }
+        }
+
+        // Save to cache
+        cacheSet(ck, result);
+
+        if (!cancelled) setRelatedTracks(result);
       } catch (err) {
         console.error("Related tracks fetch failed:", err);
         if (!cancelled) setRelatedTracks([]);

@@ -11,7 +11,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { TrackItem } from "../components/TrackItem";
 import { useYouTubeSearch } from "../hooks/useYouTubeSearch";
-import type { Track } from "../types";
+import type { Playlist, Track } from "../types";
 
 interface SearchScreenProps {
   initialQuery?: string;
@@ -22,6 +22,8 @@ interface SearchScreenProps {
   onAddRecentSearch: (q: string) => void;
   onToggleFavorite: (track: Track) => void;
   isFavorite: (id: string) => boolean;
+  playlists?: Playlist[];
+  onAddToPlaylist?: (playlistId: string, track: Track) => void;
 }
 
 export function SearchScreen({
@@ -32,6 +34,8 @@ export function SearchScreen({
   onAddRecentSearch,
   onToggleFavorite,
   isFavorite,
+  playlists,
+  onAddToPlaylist,
 }: SearchScreenProps) {
   const [query, setQuery] = useState(initialQuery);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -155,6 +159,8 @@ export function SearchScreen({
                     isFavorite={isFavorite(track.id)}
                     onPlay={(t) => onPlay(t, results)}
                     onToggleFavorite={onToggleFavorite}
+                    playlists={playlists}
+                    onAddToPlaylist={onAddToPlaylist}
                   />
                 ))}
               </div>

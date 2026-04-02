@@ -1,5 +1,6 @@
-import { Heart, Play } from "lucide-react";
-import type { Track } from "../types";
+import { Heart, ListPlus, Play } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import type { Playlist, Track } from "../types";
 
 interface TrackItemProps {
   track: Track;
@@ -9,6 +10,8 @@ interface TrackItemProps {
   onPlay: (track: Track) => void;
   onToggleFavorite?: (track: Track) => void;
   showIndex?: boolean;
+  playlists?: Playlist[];
+  onAddToPlaylist?: (playlistId: string, track: Track) => void;
 }
 
 export function TrackItem({
@@ -19,7 +22,26 @@ export function TrackItem({
   onPlay,
   onToggleFavorite,
   showIndex = false,
+  playlists,
+  onAddToPlaylist,
 }: TrackItemProps) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
+
   return (
     <div
       data-ocid={`track.item.${index}`}
@@ -88,7 +110,7 @@ export function TrackItem({
         </p>
       </button>
 
-      {/* Favorite + Play buttons */}
+      {/* Favorite + Playlist + Play buttons */}
       <div className="flex items-center gap-1 flex-shrink-0">
         {onToggleFavorite && (
           <button
@@ -106,6 +128,53 @@ export function TrackItem({
             />
           </button>
         )}
+
+        {onAddToPlaylist && (
+          <div className="relative" ref={dropdownRef}>
+            <button
+              type="button"
+              data-ocid={`track.open_modal_button.${index}`}
+              onClick={() => setDropdownOpen((v) => !v)}
+              className="w-9 h-9 flex items-center justify-center rounded-full touch-manipulation hover:bg-muted/60 transition-colors"
+              aria-label="Add to playlist"
+            >
+              <ListPlus className="w-4 h-4 text-muted-foreground" />
+            </button>
+
+            {dropdownOpen && (
+              <div
+                data-ocid={`track.popover.${index}`}
+                className="absolute right-0 bottom-full mb-1 w-48 rounded-xl border border-border bg-[#1a1a1a] shadow-2xl z-50 overflow-hidden"
+              >
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-3 pt-3 pb-1">
+                  Add to playlist
+                </p>
+                {!playlists || playlists.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-3 py-3">
+                    No playlists yet
+                  </p>
+                ) : (
+                  <div className="pb-1">
+                    {playlists.map((pl) => (
+                      <button
+                        key={pl.id}
+                        type="button"
+                        onClick={() => {
+                          onAddToPlaylist(pl.id, track);
+                          setDropdownOpen(false);
+                        }}
+                        className="w-full text-left px-3 py-2.5 text-sm text-foreground hover:bg-white/5 active:bg-white/10 touch-manipulation transition-colors truncate"
+                      >
+                        {pl.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         <button
           type="button"
           data-ocid={`track.play.button.${index}`}

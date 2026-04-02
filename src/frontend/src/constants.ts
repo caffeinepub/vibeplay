@@ -1,9 +1,14 @@
 // VibePlay Configuration
 // Multiple API keys with automatic fallback if one hits quota
+// Keys are shuffled to distribute load evenly
 export const YOUTUBE_API_KEYS = [
-  "AIzaSyDctpgtQqfZcm9RfZFmvE9eLdxo1B6uu7g",
+  "AIzaSyAZ9zdA5n1j5BJ7jrIO-47fAoEb5uH1luw",
   "AIzaSyCWSI7iXKWhjEGWnRM4p2wCR-tSQuTZUtM",
+  "AIzaSyD39AS4Zd95fD4yJa-8ti4bgJKTwzV9BXQ",
+  "AIzaSyDctpgtQqfZcm9RfZFmvE9eLdxo1B6uu7g",
+  "AIzaSyCd_YcD9ib4UmZoLFznAPYJ7ndWU4PTQF8",
   "AIzaSyAP-MdoIXQIopq-fR7-nABQVEfO-01DKSA",
+  "AIzaSyB1LSIvhPbL4iSUQnsWrXhireIXQHM7INY",
 ];
 
 // Primary key (kept for backward compat)
@@ -12,7 +17,7 @@ export const YOUTUBE_API_KEY = YOUTUBE_API_KEYS[0];
 export const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
 // Maximum number of search results to fetch
-export const MAX_SEARCH_RESULTS = 20;
+export const MAX_SEARCH_RESULTS = 7;
 
 // LocalStorage keys
 export const LS_FAVORITES = "vibeplay_favorites";
