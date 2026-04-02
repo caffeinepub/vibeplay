@@ -24,6 +24,8 @@ interface SearchScreenProps {
   isFavorite: (id: string) => boolean;
   playlists?: Playlist[];
   onAddToPlaylist?: (playlistId: string, track: Track) => void;
+  isLoggedIn?: boolean;
+  onShowLogin?: () => void;
 }
 
 export function SearchScreen({
@@ -36,6 +38,8 @@ export function SearchScreen({
   isFavorite,
   playlists,
   onAddToPlaylist,
+  isLoggedIn,
+  onShowLogin,
 }: SearchScreenProps) {
   const [query, setQuery] = useState(initialQuery);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -78,7 +82,7 @@ export function SearchScreen({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search YouTube / VibePlay…"
+            placeholder="Search YouTube / VibePlay\u2026"
             className="w-full bg-muted/60 border border-border rounded-2xl pl-10 pr-10 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-vibe-green/50 focus:bg-muted/80 transition-colors"
           />
           {query && (
@@ -94,7 +98,7 @@ export function SearchScreen({
 
         {isDemoMode && (
           <p className="text-[11px] text-muted-foreground/60 mt-2 px-1">
-            Demo mode — add your YouTube API key in{" "}
+            Demo mode \u2014 add your YouTube API key in{" "}
             <code className="bg-muted px-1 rounded text-[10px]">
               constants.ts
             </code>
@@ -114,7 +118,7 @@ export function SearchScreen({
               className="flex flex-col items-center justify-center gap-3 py-20"
             >
               <Loader2 className="w-8 h-8 text-vibe-green animate-spin" />
-              <p className="text-sm text-muted-foreground">Searching…</p>
+              <p className="text-sm text-muted-foreground">Searching\u2026</p>
             </motion.div>
           ) : error ? (
             <motion.div
@@ -161,6 +165,8 @@ export function SearchScreen({
                     onToggleFavorite={onToggleFavorite}
                     playlists={playlists}
                     onAddToPlaylist={onAddToPlaylist}
+                    isLoggedIn={isLoggedIn}
+                    onShowLogin={onShowLogin}
                   />
                 ))}
               </div>

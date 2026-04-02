@@ -15,6 +15,12 @@ export interface Playlist {
   createdAt: number;
 }
 
+export interface BackendPlaylist {
+  id: bigint;
+  name: string;
+  videoIds: string[];
+}
+
 export type TabName = "home" | "search" | "player" | "library";
 
 export type RepeatMode = "off" | "all" | "one";
@@ -24,12 +30,12 @@ export interface PlayerState {
   isPlaying: boolean;
   queue: Track[];
   queueIndex: number;
-  progress: number; // 0-100
-  duration: number; // seconds
-  currentTime: number; // seconds
+  progress: number;
+  duration: number;
+  currentTime: number;
   shuffle: boolean;
   repeat: RepeatMode;
-  volume: number; // 0-100
+  volume: number;
 }
 
 export interface MoodCategory {

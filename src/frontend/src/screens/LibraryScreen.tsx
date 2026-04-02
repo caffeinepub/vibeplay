@@ -1,7 +1,8 @@
-import { Heart, ListMusic, Music2, Plus, Trash2 } from "lucide-react";
+import { Heart, ListMusic, Lock, Music2, Plus, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { TrackItem } from "../components/TrackItem";
+import type { BackendPlaylistWithTracks } from "../hooks/useUserData";
 import type { Playlist, Track } from "../types";
 
 interface LibraryScreenProps {
@@ -14,6 +15,15 @@ interface LibraryScreenProps {
   onCreatePlaylist: (name: string) => void;
   onDeletePlaylist: (id: string) => void;
   onAddToPlaylist?: (playlistId: string, track: Track) => void;
+  // Auth-aware props
+  isLoggedIn?: boolean;
+  onShowLogin?: () => void;
+  // Backend data (when logged in)
+  likedTracks?: Track[];
+  backendPlaylists?: BackendPlaylistWithTracks[];
+  onCreateBackendPlaylist?: (name: string) => void;
+  onDeleteBackendPlaylist?: (id: bigint) => void;
+  onAddToBackendPlaylist?: (playlistId: bigint, track: Track) => void;
 }
 
 type LibraryTab = "favorites" | "playlists";
@@ -28,16 +38,57 @@ export function LibraryScreen({
   onCreatePlaylist,
   onDeletePlaylist,
   onAddToPlaylist,
+  isLoggedIn = false,
+  onShowLogin,
+  likedTracks,
+  backendPlaylists,
+  onCreateBackendPlaylist,
+  onDeleteBackendPlaylist,
+  onAddToBackendPlaylist,
 }: LibraryScreenProps) {
   const [activeTab, setActiveTab] = useState<LibraryTab>("favorites");
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
 
+  // Use backend data when logged in, localStorage when guest
+  const displayFavorites = isLoggedIn && likedTracks ? likedTracks : favorites;
+  const displayPlaylists =
+    isLoggedIn && backendPlaylists
+      ? backendPlaylists.map((bp) => ({
+          id: String(bp.id),
+          name: bp.name,
+          tracks: bp.tracks,
+          createdAt: 0,
+        }))
+      : playlists;
+
   function handleCreatePlaylist() {
     if (!newPlaylistName.trim()) return;
-    onCreatePlaylist(newPlaylistName.trim());
+    if (isLoggedIn && onCreateBackendPlaylist) {
+      onCreateBackendPlaylist(newPlaylistName.trim());
+    } else {
+      onCreatePlaylist(newPlaylistName.trim());
+    }
     setNewPlaylistName("");
     setShowCreatePlaylist(false);
+  }
+
+  function handleDeletePlaylist(id: string) {
+    if (isLoggedIn && onDeleteBackendPlaylist && backendPlaylists) {
+      const bp = backendPlaylists.find((p) => String(p.id) === id);
+      if (bp) onDeleteBackendPlaylist(bp.id);
+    } else {
+      onDeletePlaylist(id);
+    }
+  }
+
+  function handleAddToPlaylist(playlistId: string, track: Track) {
+    if (isLoggedIn && onAddToBackendPlaylist && backendPlaylists) {
+      const bp = backendPlaylists.find((p) => String(p.id) === playlistId);
+      if (bp) onAddToBackendPlaylist(bp.id, track);
+    } else if (onAddToPlaylist) {
+      onAddToPlaylist(playlistId, track);
+    }
   }
 
   return (
@@ -45,7 +96,17 @@ export function LibraryScreen({
       <div className="px-4 pt-5 pb-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-foreground">Your Library</h1>
-          {activeTab === "playlists" && (
+          {activeTab === "playlists" && isLoggedIn && (
+            <button
+              type="button"
+              data-ocid="library.create.button"
+              onClick={() => setShowCreatePlaylist(true)}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-vibe-green/20 hover:bg-vibe-green/30 touch-manipulation transition-colors"
+            >
+              <Plus className="w-4 h-4 text-vibe-green" />
+            </button>
+          )}
+          {activeTab === "playlists" && !isLoggedIn && (
             <button
               type="button"
               data-ocid="library.create.button"
@@ -72,12 +133,12 @@ export function LibraryScreen({
               {tab === "favorites" ? (
                 <span className="flex items-center gap-1.5">
                   <Heart className="w-3.5 h-3.5" />
-                  Favorites ({favorites.length})
+                  Favorites ({displayFavorites.length})
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5">
                   <ListMusic className="w-3.5 h-3.5" />
-                  Playlists ({playlists.length})
+                  Playlists ({displayPlaylists.length})
                 </span>
               )}
             </button>
@@ -103,7 +164,7 @@ export function LibraryScreen({
               value={newPlaylistName}
               onChange={(e) => setNewPlaylistName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreatePlaylist()}
-              placeholder="Playlist name…"
+              placeholder="Playlist name\u2026"
               className="w-full bg-muted/60 border border-border rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-vibe-green/50 transition-colors"
             />
             <div className="flex gap-2 mt-3">
@@ -141,7 +202,53 @@ export function LibraryScreen({
               exit={{ opacity: 0 }}
               className="px-2 pb-4"
             >
-              {favorites.length === 0 ? (
+              {!isLoggedIn ? (
+                // Guest gate for favorites
+                <div
+                  data-ocid="library.favorites.empty_state"
+                  className="flex flex-col items-center justify-center gap-4 py-20 px-6"
+                >
+                  <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center">
+                    <Lock className="w-7 h-7 text-muted-foreground" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-foreground mb-1">
+                      Save your favorites
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Log in to like songs and access them anywhere
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-ocid="library.login.button"
+                    onClick={onShowLogin}
+                    className="px-6 py-2.5 rounded-full bg-vibe-green text-black text-sm font-semibold touch-manipulation"
+                  >
+                    Log In
+                  </button>
+                  {favorites.length > 0 && (
+                    <div className="w-full mt-2">
+                      <p className="text-xs text-muted-foreground text-center mb-3">
+                        Your local favorites:
+                      </p>
+                      <div className="space-y-1">
+                        {favorites.map((track, i) => (
+                          <TrackItem
+                            key={track.id}
+                            track={track}
+                            index={i + 1}
+                            isPlaying={currentTrack?.id === track.id}
+                            isFavorite={isFavorite(track.id)}
+                            onPlay={(t) => onPlay(t, favorites)}
+                            onToggleFavorite={onToggleFavorite}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : displayFavorites.length === 0 ? (
                 <div
                   data-ocid="library.favorites.empty_state"
                   className="flex flex-col items-center justify-center gap-3 py-20"
@@ -153,22 +260,24 @@ export function LibraryScreen({
                     No favorites yet
                   </p>
                   <p className="text-xs text-muted-foreground text-center">
-                    Tap the ♥ on any song to save it here
+                    Tap the \u2665 on any song to save it here
                   </p>
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {favorites.map((track, i) => (
+                  {displayFavorites.map((track, i) => (
                     <TrackItem
                       key={track.id}
                       track={track}
                       index={i + 1}
                       isPlaying={currentTrack?.id === track.id}
-                      isFavorite={isFavorite(track.id)}
-                      onPlay={(t) => onPlay(t, favorites)}
+                      isFavorite={isLoggedIn ? true : isFavorite(track.id)}
+                      onPlay={(t) => onPlay(t, displayFavorites)}
                       onToggleFavorite={onToggleFavorite}
-                      playlists={playlists}
-                      onAddToPlaylist={onAddToPlaylist}
+                      playlists={displayPlaylists}
+                      onAddToPlaylist={handleAddToPlaylist}
+                      isLoggedIn={isLoggedIn}
+                      onShowLogin={onShowLogin}
                     />
                   ))}
                 </div>
@@ -182,7 +291,33 @@ export function LibraryScreen({
               exit={{ opacity: 0 }}
               className="px-4 pb-4"
             >
-              {playlists.length === 0 ? (
+              {!isLoggedIn ? (
+                // Guest gate for playlists
+                <div
+                  data-ocid="library.playlists.empty_state"
+                  className="flex flex-col items-center justify-center gap-4 py-20 px-6"
+                >
+                  <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center">
+                    <Lock className="w-7 h-7 text-muted-foreground" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-foreground mb-1">
+                      Create playlists
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Log in to organize your music into playlists
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-ocid="library.login.button"
+                    onClick={onShowLogin}
+                    className="px-6 py-2.5 rounded-full bg-vibe-green text-black text-sm font-semibold touch-manipulation"
+                  >
+                    Log In
+                  </button>
+                </div>
+              ) : displayPlaylists.length === 0 ? (
                 <div
                   data-ocid="library.playlists.empty_state"
                   className="flex flex-col items-center justify-center gap-3 py-20"
@@ -199,7 +334,7 @@ export function LibraryScreen({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {playlists.map((playlist, i) => (
+                  {displayPlaylists.map((playlist, i) => (
                     <motion.div
                       key={playlist.id}
                       data-ocid={`library.playlist.item.${i + 1}`}
@@ -222,7 +357,7 @@ export function LibraryScreen({
                       <button
                         type="button"
                         data-ocid={`library.playlist.delete_button.${i + 1}`}
-                        onClick={() => onDeletePlaylist(playlist.id)}
+                        onClick={() => handleDeletePlaylist(playlist.id)}
                         className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-destructive/20 touch-manipulation transition-colors"
                       >
                         <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />

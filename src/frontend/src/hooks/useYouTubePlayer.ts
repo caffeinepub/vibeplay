@@ -63,6 +63,12 @@ export function useYouTubePlayer() {
   const onTrackChangeRef = useRef<((track: Track) => void) | null>(null);
   const onEndRef = useRef<(() => void) | null>(null);
   const onQueueEmptyRef = useRef<(() => void) | null>(null);
+  const isPlayingRef = useRef(false);
+
+  // Keep isPlayingRef in sync
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   useEffect(() => {
     if (window.YT?.Player) {
@@ -77,11 +83,39 @@ export function useYouTubePlayer() {
     }
   }, []);
 
+  // Visibility change keep-alive: fight browser auto-pause of hidden iframes
+  useEffect(() => {
+    let keepAliveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden" && isPlayingRef.current) {
+        keepAliveTimeout = setTimeout(() => {
+          playerRef.current?.playVideo();
+        }, 300);
+      } else if (document.visibilityState === "visible") {
+        if (keepAliveTimeout) {
+          clearTimeout(keepAliveTimeout);
+          keepAliveTimeout = null;
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (keepAliveTimeout) clearTimeout(keepAliveTimeout);
+    };
+  }, []);
+
   const initPlayer = useCallback(
     (videoId: string) => {
       if (!isApiReady || !containerRef.current) return;
-      const existingIframe = containerRef.current.querySelector("iframe");
-      if (existingIframe) existingIframe.remove();
+
+      // Single persistent player: reuse if already exists
+      if (playerRef.current) {
+        playerRef.current.loadVideoById(videoId);
+        return;
+      }
 
       const el = document.createElement("div");
       el.id = `yt-player-${Date.now()}`;
@@ -229,6 +263,30 @@ export function useYouTubePlayer() {
     onQueueEmptyRef.current = cb;
   }, []);
 
+  const updateMediaSession = useCallback(
+    (track: Track) => {
+      if (!("mediaSession" in navigator)) return;
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.title,
+        artist: track.channelName,
+        artwork: [{ src: track.thumbnail, sizes: "96x96", type: "image/jpeg" }],
+      });
+      navigator.mediaSession.setActionHandler("play", () => {
+        playerRef.current?.playVideo();
+        setIsPlaying(true);
+      });
+      navigator.mediaSession.setActionHandler("pause", () => {
+        playerRef.current?.pauseVideo();
+        setIsPlaying(false);
+      });
+      navigator.mediaSession.setActionHandler("nexttrack", () => playNext());
+      navigator.mediaSession.setActionHandler("previoustrack", () =>
+        playPrev(),
+      );
+    },
+    [playNext, playPrev],
+  );
+
   useEffect(() => {
     onEndRef.current = () => {
       const queue = queueRef.current;
@@ -286,6 +344,7 @@ export function useYouTubePlayer() {
     onTrackChange,
     onEnd,
     onQueueEmpty,
+    updateMediaSession,
     queue: queueRef.current,
     queueIndex: queueIndexRef.current,
   };

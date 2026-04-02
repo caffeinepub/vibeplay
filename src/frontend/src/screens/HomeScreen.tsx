@@ -1,5 +1,6 @@
-import { ChevronRight, Clock } from "lucide-react";
-import { motion } from "motion/react";
+import { ChevronRight, Clock, LogOut, User } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useState } from "react";
 import { MOOD_CATEGORIES } from "../data/mockData";
 import type { TabName, Track } from "../types";
 
@@ -10,6 +11,10 @@ interface HomeScreenProps {
   onPlay: (track: Track, queue: Track[]) => void;
   onSearch: (query: string) => void;
   onNavigate: (tab: TabName) => void;
+  username?: string;
+  isLoggedIn?: boolean;
+  onShowLogin?: () => void;
+  onLogout?: () => void;
 }
 
 function getGreeting() {
@@ -26,7 +31,15 @@ export function HomeScreen({
   onPlay,
   onSearch,
   onNavigate,
+  username,
+  isLoggedIn,
+  onShowLogin,
+  onLogout,
 }: HomeScreenProps) {
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const displayName = username || "Deepak";
+
   return (
     <div className="flex-1 overflow-y-auto scrollbar-hide">
       <div className="px-4 pt-6 pb-4">
@@ -34,13 +47,90 @@ export function HomeScreen({
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
+          className="flex items-start justify-between"
         >
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1">
-            Home
-          </p>
-          <h1 className="text-3xl font-bold text-foreground">
-            {getGreeting()}, Deepak 👋
-          </h1>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1">
+              Home
+            </p>
+            <h1 className="text-3xl font-bold text-foreground">
+              {getGreeting()}, {displayName} \uD83D\uDC4B
+            </h1>
+          </div>
+
+          {/* Profile / Auth button */}
+          <div className="relative mt-1">
+            <button
+              type="button"
+              data-ocid="home.profile.button"
+              onClick={() => {
+                if (isLoggedIn) {
+                  setShowUserMenu((v) => !v);
+                } else {
+                  onShowLogin?.();
+                }
+              }}
+              className="w-8 h-8 rounded-full flex items-center justify-center touch-manipulation transition-colors"
+              style={{
+                background: isLoggedIn
+                  ? "oklch(var(--vibe-green) / 0.15)"
+                  : "oklch(var(--muted))",
+                border: isLoggedIn
+                  ? "1.5px solid oklch(var(--vibe-green) / 0.4)"
+                  : "1.5px solid oklch(var(--border))",
+              }}
+              aria-label={isLoggedIn ? "User menu" : "Log in"}
+            >
+              {isLoggedIn && username ? (
+                <span className="text-xs font-bold text-vibe-green">
+                  {username.charAt(0).toUpperCase()}
+                </span>
+              ) : (
+                <User className="w-4 h-4 text-muted-foreground" />
+              )}
+            </button>
+
+            <AnimatePresence>
+              {showUserMenu && isLoggedIn && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute right-0 top-10 w-44 rounded-2xl border border-border bg-[#1a1a1a] shadow-2xl z-50 overflow-hidden"
+                >
+                  <div className="px-4 py-3 border-b border-border">
+                    <p className="text-xs text-muted-foreground">
+                      Signed in as
+                    </p>
+                    <p className="text-sm font-semibold text-foreground truncate">
+                      {username}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-ocid="home.logout.button"
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      onLogout?.();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-destructive hover:bg-destructive/10 touch-manipulation transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Log out
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {showUserMenu && (
+              // biome-ignore lint/a11y/useKeyWithClickEvents: backdrop dismiss
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowUserMenu(false)}
+              />
+            )}
+          </div>
         </motion.div>
       </div>
 
@@ -214,7 +304,13 @@ export function HomeScreen({
           <span className="text-sm font-bold text-foreground">VibePlay</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          © {new Date().getFullYear()}. Built with ❤️ using{" "}
+          Made by{" "}
+          <span className="text-muted-foreground/80 font-medium">
+            Deepak Chahal
+          </span>
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          \u00A9 {new Date().getFullYear()}. Built with \u2764\uFE0F using{" "}
           <a
             href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
             target="_blank"

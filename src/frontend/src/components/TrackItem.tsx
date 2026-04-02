@@ -12,6 +12,8 @@ interface TrackItemProps {
   showIndex?: boolean;
   playlists?: Playlist[];
   onAddToPlaylist?: (playlistId: string, track: Track) => void;
+  isLoggedIn?: boolean;
+  onShowLogin?: () => void;
 }
 
 export function TrackItem({
@@ -24,6 +26,8 @@ export function TrackItem({
   showIndex = false,
   playlists,
   onAddToPlaylist,
+  isLoggedIn,
+  onShowLogin,
 }: TrackItemProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -41,6 +45,23 @@ export function TrackItem({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [dropdownOpen]);
+
+  function handleHeartClick() {
+    if (!onToggleFavorite) return;
+    if (isLoggedIn === false) {
+      onShowLogin?.();
+      return;
+    }
+    onToggleFavorite(track);
+  }
+
+  function handlePlaylistClick() {
+    if (isLoggedIn === false) {
+      onShowLogin?.();
+      return;
+    }
+    setDropdownOpen((v) => !v);
+  }
 
   return (
     <div
@@ -110,13 +131,13 @@ export function TrackItem({
         </p>
       </button>
 
-      {/* Favorite + Playlist + Play buttons */}
+      {/* Action buttons */}
       <div className="flex items-center gap-1 flex-shrink-0">
         {onToggleFavorite && (
           <button
             type="button"
             data-ocid={`track.toggle.${index}`}
-            onClick={() => onToggleFavorite(track)}
+            onClick={handleHeartClick}
             className="w-9 h-9 flex items-center justify-center rounded-full touch-manipulation"
           >
             <Heart
@@ -134,7 +155,7 @@ export function TrackItem({
             <button
               type="button"
               data-ocid={`track.open_modal_button.${index}`}
-              onClick={() => setDropdownOpen((v) => !v)}
+              onClick={handlePlaylistClick}
               className="w-9 h-9 flex items-center justify-center rounded-full touch-manipulation hover:bg-muted/60 transition-colors"
               aria-label="Add to playlist"
             >
