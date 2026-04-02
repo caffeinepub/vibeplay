@@ -62,6 +62,7 @@ export function useYouTubePlayer() {
   );
   const onTrackChangeRef = useRef<((track: Track) => void) | null>(null);
   const onEndRef = useRef<(() => void) | null>(null);
+  const onQueueEmptyRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (window.YT?.Player) {
@@ -154,6 +155,11 @@ export function useYouTubePlayer() {
     [initPlayer],
   );
 
+  const updateQueue = useCallback((queue: Track[], index: number) => {
+    queueRef.current = queue;
+    queueIndexRef.current = index;
+  }, []);
+
   const togglePlay = useCallback(() => {
     if (!playerRef.current) return;
     if (isPlaying) {
@@ -219,18 +225,29 @@ export function useYouTubePlayer() {
     onEndRef.current = cb;
   }, []);
 
+  const onQueueEmpty = useCallback((cb: () => void) => {
+    onQueueEmptyRef.current = cb;
+  }, []);
+
   useEffect(() => {
     onEndRef.current = () => {
       const queue = queueRef.current;
-      if (queue.length === 0) return;
+      if (queue.length === 0) {
+        onQueueEmptyRef.current?.();
+        return;
+      }
       if (repeatRef.current === "one") {
         playerRef.current?.loadVideoById(queue[queueIndexRef.current].id);
         return;
       }
       let nextIndex = queueIndexRef.current + 1;
       if (nextIndex >= queue.length) {
-        if (repeatRef.current === "all") nextIndex = 0;
-        else return;
+        if (repeatRef.current === "all") {
+          nextIndex = 0;
+        } else {
+          onQueueEmptyRef.current?.();
+          return;
+        }
       }
       queueIndexRef.current = nextIndex;
       const nextTrack = queue[nextIndex];
@@ -258,6 +275,7 @@ export function useYouTubePlayer() {
     progress,
     volume,
     playTrack,
+    updateQueue,
     togglePlay,
     playNext,
     playPrev,
@@ -267,6 +285,7 @@ export function useYouTubePlayer() {
     setRepeat,
     onTrackChange,
     onEnd,
+    onQueueEmpty,
     queue: queueRef.current,
     queueIndex: queueIndexRef.current,
   };

@@ -5,6 +5,7 @@ export interface Track {
   thumbnail: string;
   duration?: string;
   viewCount?: string;
+  tags?: string[];
 }
 
 export interface Playlist {

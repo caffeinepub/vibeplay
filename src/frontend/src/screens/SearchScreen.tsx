@@ -1,4 +1,12 @@
-import { AlertCircle, Clock, Loader2, Music2, Search, X } from "lucide-react";
+import {
+  AlertCircle,
+  Clock,
+  Loader2,
+  Music2,
+  Search,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { TrackItem } from "../components/TrackItem";
@@ -27,7 +35,8 @@ export function SearchScreen({
 }: SearchScreenProps) {
   const [query, setQuery] = useState(initialQuery);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { results, isLoading, error, search, isDemoMode } = useYouTubeSearch();
+  const { results, isLoading, error, search, isDemoMode, hasVibeResults } =
+    useYouTubeSearch();
 
   useEffect(() => {
     if (initialQuery) {
@@ -125,9 +134,17 @@ export function SearchScreen({
               exit={{ opacity: 0 }}
               className="px-2 pb-4"
             >
-              <p className="px-4 pb-2 text-xs text-muted-foreground font-medium">
-                {results.length} results
-              </p>
+              <div className="px-4 pb-2 flex items-center gap-1.5">
+                <p className="text-xs text-muted-foreground font-medium">
+                  {results.length} results
+                </p>
+                {hasVibeResults && (
+                  <span className="flex items-center gap-1 text-[10px] text-vibe-green/70 font-medium">
+                    <Sparkles className="w-2.5 h-2.5" />
+                    includes similar vibes
+                  </span>
+                )}
+              </div>
               <div className="space-y-1">
                 {results.map((track, i) => (
                   <TrackItem

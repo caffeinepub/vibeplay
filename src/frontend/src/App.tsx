@@ -9,6 +9,7 @@ import {
   usePlaylists,
   useRecentSearches,
 } from "./hooks/useLocalStorage";
+import { useRelatedTracks } from "./hooks/useRelatedTracks";
 import { useYouTubePlayer } from "./hooks/useYouTubePlayer";
 import { HomeScreen } from "./screens/HomeScreen";
 import { LibraryScreen } from "./screens/LibraryScreen";
@@ -28,6 +29,8 @@ export default function App() {
   const { recentSearches, addRecentSearch } = useRecentSearches();
   const { continueListening, addToHistory } = useContinueListening();
   const { playlists, createPlaylist, deletePlaylist } = usePlaylists();
+  const { relatedTracks, isLoading: isLoadingRelated } =
+    useRelatedTracks(currentTrack);
 
   useEffect(() => {
     player.onTrackChange((track) => {
@@ -45,6 +48,25 @@ export default function App() {
     },
     [player.playTrack, addToHistory],
   );
+
+  // Auto-play first related track when queue is exhausted
+  useEffect(() => {
+    player.onQueueEmpty(() => {
+      if (relatedTracks.length > 0) {
+        handlePlay(relatedTracks[0], relatedTracks);
+      }
+    });
+  }, [player.onQueueEmpty, relatedTracks, handlePlay]);
+
+  // Keep auto-play queue fresh when relatedTracks updates for the new song
+  useEffect(() => {
+    if (currentTrack && relatedTracks.length > 0) {
+      const idx = relatedTracks.findIndex((t) => t.id === currentTrack.id);
+      if (idx !== -1) {
+        player.updateQueue(relatedTracks, idx);
+      }
+    }
+  }, [relatedTracks, currentTrack, player.updateQueue]);
 
   const handleToggleFavorite = useCallback(
     (track: Track) => {
@@ -72,6 +94,13 @@ export default function App() {
       return next;
     });
   }, [player.setRepeat]);
+
+  const handlePlayRelated = useCallback(
+    (track: Track) => {
+      handlePlay(track, relatedTracks);
+    },
+    [handlePlay, relatedTracks],
+  );
 
   return (
     <div
@@ -168,6 +197,8 @@ export default function App() {
                 shuffle={shuffle}
                 repeat={repeat}
                 isFavorite={currentTrack ? isFavorite(currentTrack.id) : false}
+                relatedTracks={relatedTracks}
+                isLoadingRelated={isLoadingRelated}
                 onTogglePlay={player.togglePlay}
                 onNext={player.playNext}
                 onPrev={player.playPrev}
@@ -179,6 +210,7 @@ export default function App() {
                   currentTrack && handleToggleFavorite(currentTrack)
                 }
                 onBack={() => setActiveTab("home")}
+                onPlayRelated={handlePlayRelated}
               />
             </motion.div>
           )}

@@ -1,5 +1,13 @@
 // VibePlay Configuration
-export const YOUTUBE_API_KEY = "AIzaSyDctpgtQqfZcm9RfZFmvE9eLdxo1B6uu7g";
+// Multiple API keys with automatic fallback if one hits quota
+export const YOUTUBE_API_KEYS = [
+  "AIzaSyDctpgtQqfZcm9RfZFmvE9eLdxo1B6uu7g",
+  "AIzaSyCWSI7iXKWhjEGWnRM4p2wCR-tSQuTZUtM",
+  "AIzaSyAP-MdoIXQIopq-fR7-nABQVEfO-01DKSA",
+];
+
+// Primary key (kept for backward compat)
+export const YOUTUBE_API_KEY = YOUTUBE_API_KEYS[0];
 
 export const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
@@ -18,3 +26,37 @@ export const MAX_RECENT_SEARCHES = 10;
 
 // Max continue listening items
 export const MAX_CONTINUE_LISTENING = 20;
+
+// Track which key index is currently active
+let activeKeyIndex = 0;
+
+/** Returns the currently active API key */
+export function getActiveApiKey(): string {
+  return YOUTUBE_API_KEYS[activeKeyIndex];
+}
+
+/**
+ * Tries to fetch a URL with automatic API key fallback.
+ * If the response indicates quota exceeded or forbidden, rotates to the next key and retries.
+ */
+export async function fetchWithKeyFallback(
+  buildUrl: (key: string) => string,
+): Promise<Response> {
+  const startIndex = activeKeyIndex;
+  for (let attempt = 0; attempt < YOUTUBE_API_KEYS.length; attempt++) {
+    const key = YOUTUBE_API_KEYS[activeKeyIndex];
+    const url = buildUrl(key);
+    const res = await fetch(url);
+    if (res.ok) return res;
+    // 403 = quota exceeded / key invalid; try next key
+    if (res.status === 403 || res.status === 400) {
+      activeKeyIndex = (activeKeyIndex + 1) % YOUTUBE_API_KEYS.length;
+      if (activeKeyIndex === startIndex) break; // all keys tried
+      continue;
+    }
+    // Other errors — return as-is
+    return res;
+  }
+  // All keys exhausted, return last failed response by re-fetching with current key
+  return fetch(buildUrl(YOUTUBE_API_KEYS[activeKeyIndex]));
+}

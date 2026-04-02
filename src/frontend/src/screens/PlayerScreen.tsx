@@ -1,3 +1,4 @@
+import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import {
   ChevronDown,
@@ -33,6 +34,8 @@ interface PlayerScreenProps {
   shuffle: boolean;
   repeat: RepeatMode;
   isFavorite: boolean;
+  relatedTracks: Track[];
+  isLoadingRelated: boolean;
   onTogglePlay: () => void;
   onNext: () => void;
   onPrev: () => void;
@@ -42,6 +45,7 @@ interface PlayerScreenProps {
   onCycleRepeat: () => void;
   onToggleFavorite: () => void;
   onBack: () => void;
+  onPlayRelated: (track: Track) => void;
 }
 
 export function PlayerScreen({
@@ -54,6 +58,8 @@ export function PlayerScreen({
   shuffle,
   repeat,
   isFavorite,
+  relatedTracks,
+  isLoadingRelated,
   onTogglePlay,
   onNext,
   onPrev,
@@ -63,6 +69,7 @@ export function PlayerScreen({
   onCycleRepeat,
   onToggleFavorite,
   onBack,
+  onPlayRelated,
 }: PlayerScreenProps) {
   const [showVolume, setShowVolume] = useState(false);
 
@@ -83,7 +90,7 @@ export function PlayerScreen({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-y-auto">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 pt-5 pb-2 flex-shrink-0">
         <button
@@ -134,7 +141,7 @@ export function PlayerScreen({
       )}
 
       {/* Album Art */}
-      <div className="flex-1 flex items-center justify-center px-8 py-4 min-h-0">
+      <div className="flex items-center justify-center px-8 py-4 flex-shrink-0">
         <motion.div
           key={track.id}
           initial={{ scale: 0.9, opacity: 0 }}
@@ -143,7 +150,7 @@ export function PlayerScreen({
           className={`w-full max-w-xs aspect-square rounded-3xl overflow-hidden shadow-2xl ${
             isPlaying ? "animate-pulse-green" : ""
           }`}
-          style={{ maxHeight: "min(50vw, 260px)" }}
+          style={{ maxHeight: "min(50vw, 240px)" }}
         >
           <img
             src={track.thumbnail}
@@ -267,6 +274,124 @@ export function PlayerScreen({
               />
             )}
           </button>
+        </div>
+      </div>
+
+      {/* Up Next Section */}
+      <div className="px-4 pb-6 flex-shrink-0">
+        <div className="flex items-center gap-2 mb-3">
+          <ListMusic className="w-4 h-4 text-vibe-green" />
+          <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+            Up Next
+          </h3>
+          {!isLoadingRelated && relatedTracks.length > 0 && (
+            <span className="text-xs text-muted-foreground ml-auto">
+              {relatedTracks.length} songs
+            </span>
+          )}
+        </div>
+
+        <div data-ocid="player.upnext.list" className="flex flex-col gap-1">
+          {isLoadingRelated ? (
+            <>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  data-ocid="player.upnext.loading_state"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                >
+                  <Skeleton className="w-11 h-11 rounded-lg flex-shrink-0" />
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <Skeleton className="h-3.5 w-3/4 rounded" />
+                    <Skeleton className="h-3 w-1/2 rounded" />
+                  </div>
+                  <Skeleton className="w-8 h-3 rounded flex-shrink-0" />
+                </div>
+              ))}
+            </>
+          ) : relatedTracks.length === 0 ? (
+            <div
+              data-ocid="player.upnext.empty_state"
+              className="flex flex-col items-center gap-2 py-6"
+            >
+              <ListMusic className="w-8 h-8 text-muted-foreground/40" />
+              <p className="text-xs text-muted-foreground">
+                No recommendations yet
+              </p>
+            </div>
+          ) : (
+            relatedTracks.map((relTrack, idx) => (
+              <button
+                key={relTrack.id}
+                type="button"
+                data-ocid={`player.upnext.item.${idx + 1}`}
+                onClick={() => onPlayRelated(relTrack)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl w-full text-left transition-colors touch-manipulation ${
+                  relTrack.id === track.id
+                    ? "bg-vibe-green/10 border border-vibe-green/20"
+                    : "hover:bg-muted/40 active:bg-muted/60"
+                }`}
+              >
+                {/* Thumbnail */}
+                <div className="w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-muted relative">
+                  <img
+                    src={relTrack.thumbnail}
+                    alt={relTrack.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                  {relTrack.id === track.id && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                      <div className="flex gap-0.5 items-end h-4">
+                        {[0, 1, 2].map((i) => (
+                          <div
+                            key={i}
+                            className="w-0.5 bg-vibe-green rounded-full animate-bounce"
+                            style={{
+                              height: `${60 + i * 20}%`,
+                              animationDelay: `${i * 0.15}s`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Track info */}
+                <div className="flex-1 min-w-0">
+                  <p
+                    className={`text-sm font-medium truncate ${
+                      relTrack.id === track.id
+                        ? "text-vibe-green"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {relTrack.title}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {relTrack.channelName}
+                  </p>
+                </div>
+
+                {/* Duration */}
+                {relTrack.duration && (
+                  <span className="text-xs text-muted-foreground flex-shrink-0">
+                    {relTrack.duration}
+                  </span>
+                )}
+
+                {/* Play indicator */}
+                {relTrack.id !== track.id && (
+                  <div className="w-7 h-7 flex items-center justify-center rounded-full bg-muted/60 flex-shrink-0">
+                    <Play className="w-3 h-3 fill-foreground text-foreground" />
+                  </div>
+                )}
+              </button>
+            ))
+          )}
         </div>
       </div>
     </div>
