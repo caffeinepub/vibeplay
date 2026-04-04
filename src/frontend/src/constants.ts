@@ -9,6 +9,9 @@ export const YOUTUBE_API_KEYS = [
   "AIzaSyCd_YcD9ib4UmZoLFznAPYJ7ndWU4PTQF8",
   "AIzaSyAP-MdoIXQIopq-fR7-nABQVEfO-01DKSA",
   "AIzaSyB1LSIvhPbL4iSUQnsWrXhireIXQHM7INY",
+  "AIzaSyAuFchL9ZS4DX7mLxq60JSGkbQQPlMwaiI",
+  "AIzaSyATY3_8aH9TwDhcOibQMlHamStZbqYCdX4",
+  "AIzaSyDMoPFf0HXjJqz7tep6RfdDk2VBmSExzKg",
 ];
 
 // Primary key (kept for backward compat)
@@ -36,12 +39,13 @@ export const MAX_RECENT_SEARCHES = 10;
 // Max continue listening items
 export const MAX_CONTINUE_LISTENING = 20;
 
-// Track which key index is currently active
+// Track which key index is currently active (shuffled for load distribution)
+let shuffledKeys = [...YOUTUBE_API_KEYS].sort(() => Math.random() - 0.5);
 let activeKeyIndex = 0;
 
 /** Returns the currently active API key */
 export function getActiveApiKey(): string {
-  return YOUTUBE_API_KEYS[activeKeyIndex];
+  return shuffledKeys[activeKeyIndex];
 }
 
 /**
@@ -73,14 +77,15 @@ export async function parseYouTubeError(res: Response): Promise<string> {
 /**
  * Tries to fetch a URL with automatic API key fallback.
  * If the response indicates quota exceeded or forbidden, rotates to the next key and retries.
+ * Keys are pre-shuffled for even load distribution across all 10 keys.
  */
 export async function fetchWithKeyFallback(
   buildUrl: (key: string) => string,
 ): Promise<Response> {
   const startIndex = activeKeyIndex;
   let lastRes: Response | null = null;
-  for (let attempt = 0; attempt < YOUTUBE_API_KEYS.length; attempt++) {
-    const key = YOUTUBE_API_KEYS[activeKeyIndex];
+  for (let attempt = 0; attempt < shuffledKeys.length; attempt++) {
+    const key = shuffledKeys[activeKeyIndex];
     const url = buildUrl(key);
     try {
       const res = await fetch(url);
@@ -88,7 +93,7 @@ export async function fetchWithKeyFallback(
       lastRes = res;
       // 403 = quota exceeded / key invalid; try next key
       if (res.status === 403) {
-        activeKeyIndex = (activeKeyIndex + 1) % YOUTUBE_API_KEYS.length;
+        activeKeyIndex = (activeKeyIndex + 1) % shuffledKeys.length;
         if (activeKeyIndex === startIndex) break; // all keys tried
         continue;
       }
@@ -98,6 +103,8 @@ export async function fetchWithKeyFallback(
       throw new Error("Network error. Check your internet connection.");
     }
   }
-  // All keys exhausted — return last failed response
-  return lastRes ?? fetch(buildUrl(YOUTUBE_API_KEYS[activeKeyIndex]));
+  // All keys exhausted — reshuffle and reset for next session
+  shuffledKeys = [...YOUTUBE_API_KEYS].sort(() => Math.random() - 0.5);
+  activeKeyIndex = 0;
+  return lastRes ?? fetch(buildUrl(shuffledKeys[0]));
 }

@@ -101,7 +101,16 @@ export function PlayerScreen({
         >
           <ChevronDown className="w-5 h-5 text-foreground" />
         </button>
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <p
+          className="text-xs font-bold uppercase tracking-wider"
+          style={{
+            background:
+              "linear-gradient(135deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350))",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}
+        >
           Now Playing
         </p>
         <button
@@ -147,10 +156,14 @@ export function PlayerScreen({
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className={`w-full max-w-xs aspect-square rounded-3xl overflow-hidden shadow-2xl ${
-            isPlaying ? "animate-pulse-green" : ""
-          }`}
-          style={{ maxHeight: "min(50vw, 240px)" }}
+          className="w-full max-w-xs aspect-square rounded-3xl overflow-hidden shadow-2xl"
+          style={{
+            maxHeight: "min(50vw, 240px)",
+            boxShadow: isPlaying
+              ? "0 0 40px rgba(168, 85, 247, 0.3), 0 0 80px rgba(236, 72, 153, 0.15)"
+              : "0 8px 32px rgba(0,0,0,0.5)",
+            transition: "box-shadow 0.5s ease",
+          }}
         >
           <img
             src={track.thumbnail}
@@ -158,7 +171,7 @@ export function PlayerScreen({
             className="w-full h-full object-cover"
             onError={(e) => {
               (e.target as HTMLImageElement).src =
-                "/assets/generated/vibeplay-logo-transparent.dim_120x120.png";
+                "/assets/generated/vibeplay-logo-color.dim_512x512.png";
             }}
           />
         </motion.div>
@@ -183,10 +196,12 @@ export function PlayerScreen({
           >
             <Heart
               className={`w-5 h-5 transition-all ${
-                isFavorite
-                  ? "fill-vibe-green text-vibe-green scale-110"
-                  : "text-muted-foreground"
+                isFavorite ? "scale-110" : "text-muted-foreground"
               }`}
+              style={{
+                fill: isFavorite ? "oklch(0.62 0.24 350)" : "none",
+                color: isFavorite ? "oklch(0.62 0.24 350)" : undefined,
+              }}
             />
           </button>
         </div>
@@ -223,7 +238,12 @@ export function PlayerScreen({
             className="w-11 h-11 flex items-center justify-center rounded-full touch-manipulation"
           >
             <Shuffle
-              className={`w-5 h-5 transition-colors ${shuffle ? "text-vibe-green" : "text-muted-foreground"}`}
+              className="w-5 h-5 transition-colors"
+              style={{
+                color: shuffle
+                  ? "oklch(0.58 0.24 293)"
+                  : "oklch(var(--muted-foreground))",
+              }}
             />
           </button>
 
@@ -240,12 +260,17 @@ export function PlayerScreen({
             type="button"
             data-ocid="player.play.button"
             onClick={onTogglePlay}
-            className="w-16 h-16 flex items-center justify-center rounded-full bg-vibe-green touch-manipulation active:scale-95 transition-transform shadow-glow"
+            className="w-16 h-16 flex items-center justify-center rounded-full touch-manipulation active:scale-95 transition-transform text-white"
+            style={{
+              background:
+                "linear-gradient(135deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350), oklch(0.75 0.17 200))",
+              boxShadow: "0 4px 20px oklch(0.58 0.24 293 / 0.4)",
+            }}
           >
             {isPlaying ? (
-              <Pause className="w-7 h-7 fill-black text-black" />
+              <Pause className="w-7 h-7 fill-white text-white" />
             ) : (
-              <Play className="w-7 h-7 fill-black text-black ml-0.5" />
+              <Play className="w-7 h-7 fill-white text-white ml-0.5" />
             )}
           </button>
 
@@ -265,12 +290,19 @@ export function PlayerScreen({
             className="w-11 h-11 flex items-center justify-center rounded-full touch-manipulation"
           >
             {repeat === "one" ? (
-              <Repeat1 className="w-5 h-5 text-vibe-green" />
+              <Repeat1
+                className="w-5 h-5"
+                style={{ color: "oklch(0.75 0.17 200)" }}
+              />
             ) : (
               <Repeat
-                className={`w-5 h-5 transition-colors ${
-                  repeat === "all" ? "text-vibe-green" : "text-muted-foreground"
-                }`}
+                className="w-5 h-5 transition-colors"
+                style={{
+                  color:
+                    repeat === "all"
+                      ? "oklch(0.75 0.17 200)"
+                      : "oklch(var(--muted-foreground))",
+                }}
               />
             )}
           </button>
@@ -280,7 +312,10 @@ export function PlayerScreen({
       {/* Up Next Section */}
       <div className="px-4 pb-6 flex-shrink-0">
         <div className="flex items-center gap-2 mb-3">
-          <ListMusic className="w-4 h-4 text-vibe-green" />
+          <ListMusic
+            className="w-4 h-4"
+            style={{ color: "oklch(0.75 0.17 200)" }}
+          />
           <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
             Up Next
           </h3>
@@ -328,9 +363,19 @@ export function PlayerScreen({
                 onClick={() => onPlayRelated(relTrack)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl w-full text-left transition-colors touch-manipulation ${
                   relTrack.id === track.id
-                    ? "bg-vibe-green/10 border border-vibe-green/20"
+                    ? "border"
                     : "hover:bg-muted/40 active:bg-muted/60"
                 }`}
+                style={{
+                  background:
+                    relTrack.id === track.id
+                      ? "oklch(0.58 0.24 293 / 0.08)"
+                      : undefined,
+                  borderColor:
+                    relTrack.id === track.id
+                      ? "oklch(0.58 0.24 293 / 0.2)"
+                      : undefined,
+                }}
               >
                 {/* Thumbnail */}
                 <div className="w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-muted relative">
@@ -348,10 +393,11 @@ export function PlayerScreen({
                         {[0, 1, 2].map((i) => (
                           <div
                             key={i}
-                            className="w-0.5 bg-vibe-green rounded-full animate-bounce"
+                            className="w-0.5 rounded-full animate-bounce"
                             style={{
                               height: `${60 + i * 20}%`,
                               animationDelay: `${i * 0.15}s`,
+                              background: "oklch(0.62 0.24 350)",
                             }}
                           />
                         ))}
@@ -363,11 +409,13 @@ export function PlayerScreen({
                 {/* Track info */}
                 <div className="flex-1 min-w-0">
                   <p
-                    className={`text-sm font-medium truncate ${
-                      relTrack.id === track.id
-                        ? "text-vibe-green"
-                        : "text-foreground"
-                    }`}
+                    className="text-sm font-medium truncate"
+                    style={{
+                      color:
+                        relTrack.id === track.id
+                          ? "oklch(0.62 0.24 350)"
+                          : undefined,
+                    }}
                   >
                     {relTrack.title}
                   </p>

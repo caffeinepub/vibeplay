@@ -81,10 +81,12 @@ export function FilterChipBar({ onFiltersChange }: FilterChipBarProps) {
             paddingLeft: 12,
             paddingRight: 12,
             background:
-              selected.length === 0 ? "#1DB954" : "rgba(255,255,255,0.08)",
+              selected.length === 0
+                ? "linear-gradient(135deg, oklch(0.72 0.19 145), oklch(0.60 0.16 145))"
+                : "rgba(255,255,255,0.08)",
             border:
               selected.length === 0
-                ? "1.5px solid #1DB954"
+                ? "1.5px solid oklch(0.72 0.19 145 / 0.6)"
                 : "1.5px solid rgba(255,255,255,0.12)",
           }}
           aria-pressed={selected.length === 0}
@@ -112,6 +114,14 @@ export function FilterChipBar({ onFiltersChange }: FilterChipBarProps) {
         {/* Language + Mood chips */}
         {FILTER_CHIPS.map((chip, i) => {
           const isActive = selected.includes(chip.id);
+          const isLanguage = chip.type === "language";
+          const activeBackground = isLanguage
+            ? "linear-gradient(135deg, #7c3aed, #6366f1)"
+            : "linear-gradient(135deg, #ec4899, #f43f5e)";
+          const activeBorder = isLanguage
+            ? "1.5px solid rgba(124,58,237,0.5)"
+            : "1.5px solid rgba(236,72,153,0.5)";
+
           return (
             <motion.button
               key={chip.id}
@@ -127,9 +137,11 @@ export function FilterChipBar({ onFiltersChange }: FilterChipBarProps) {
                 height: 34,
                 paddingLeft: 12,
                 paddingRight: 12,
-                background: isActive ? "#1DB954" : "rgba(255,255,255,0.08)",
+                background: isActive
+                  ? activeBackground
+                  : "rgba(255,255,255,0.08)",
                 border: isActive
-                  ? "1.5px solid #1DB954"
+                  ? activeBorder
                   : "1.5px solid rgba(255,255,255,0.12)",
               }}
               aria-pressed={isActive}
@@ -137,7 +149,7 @@ export function FilterChipBar({ onFiltersChange }: FilterChipBarProps) {
               <span className="text-sm leading-none">{chip.emoji}</span>
               <span
                 className="text-xs font-semibold whitespace-nowrap"
-                style={{ color: isActive ? "#000" : "rgba(255,255,255,0.75)" }}
+                style={{ color: isActive ? "#fff" : "rgba(255,255,255,0.75)" }}
               >
                 {chip.label}
               </span>

@@ -8,15 +8,20 @@ interface BottomNavProps {
   hasActiveTrack: boolean;
 }
 
+type TabIcon = React.ComponentType<{
+  className?: string;
+  style?: React.CSSProperties;
+}>;
+
 const TABS: {
   id: TabName;
   label: string;
-  Icon: React.ComponentType<{ className?: string }>;
+  Icon: TabIcon;
 }[] = [
-  { id: "home", label: "Home", Icon: Home },
-  { id: "search", label: "Search", Icon: Search },
-  { id: "player", label: "Player", Icon: Music2 },
-  { id: "library", label: "Library", Icon: Library },
+  { id: "home", label: "Home", Icon: Home as TabIcon },
+  { id: "search", label: "Search", Icon: Search as TabIcon },
+  { id: "player", label: "Player", Icon: Music2 as TabIcon },
+  { id: "library", label: "Library", Icon: Library as TabIcon },
 ];
 
 export function BottomNav({
@@ -26,8 +31,14 @@ export function BottomNav({
 }: BottomNavProps) {
   return (
     <nav
-      className="flex items-center justify-around bg-[oklch(0.09_0_0)] border-t border-border px-2 pb-safe-bottom"
-      style={{ height: "64px", flexShrink: 0 }}
+      className="flex items-center justify-around bg-[oklch(0.09_0_0)] px-2 pb-safe-bottom"
+      style={{
+        height: "64px",
+        flexShrink: 0,
+        borderTop: "1px solid transparent",
+        background:
+          "linear-gradient(oklch(0.09 0 0), oklch(0.09 0 0)) padding-box, linear-gradient(90deg, oklch(0.58 0.24 293 / 0.3), oklch(0.62 0.24 350 / 0.3), oklch(0.75 0.17 200 / 0.3)) border-box",
+      }}
     >
       {TABS.map(({ id, label, Icon }) => {
         const isActive = activeTab === id;
@@ -44,24 +55,40 @@ export function BottomNav({
             {isActive && (
               <motion.div
                 layoutId="active-tab-bg"
-                className="absolute inset-x-2 inset-y-1 rounded-xl bg-vibe-green/10"
+                className="absolute inset-x-2 inset-y-1 rounded-xl"
+                style={{
+                  background:
+                    "linear-gradient(135deg, oklch(0.58 0.24 293 / 0.15), oklch(0.62 0.24 350 / 0.15))",
+                }}
                 transition={{ type: "spring", stiffness: 400, damping: 35 }}
               />
             )}
             <div className="relative">
               <Icon
-                className={`w-5 h-5 transition-colors duration-200 ${
-                  isActive ? "text-vibe-green" : "text-muted-foreground"
-                }`}
+                className="w-5 h-5 transition-colors duration-200"
+                style={{
+                  color: isActive
+                    ? "oklch(0.62 0.24 350)"
+                    : "oklch(var(--muted-foreground))",
+                }}
               />
               {isPlayerTab && hasActiveTrack && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-vibe-green rounded-full" />
+                <span
+                  className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350))",
+                  }}
+                />
               )}
             </div>
             <span
-              className={`text-[10px] font-medium transition-colors duration-200 ${
-                isActive ? "text-vibe-green" : "text-muted-foreground"
-              }`}
+              className="text-[10px] font-medium transition-colors duration-200"
+              style={{
+                color: isActive
+                  ? "oklch(0.62 0.24 350)"
+                  : "oklch(var(--muted-foreground))",
+              }}
             >
               {label}
             </span>

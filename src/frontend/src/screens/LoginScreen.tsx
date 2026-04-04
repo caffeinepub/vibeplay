@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Music2, X } from "lucide-react";
+import { Eye, EyeOff, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 
@@ -69,6 +69,16 @@ export function LoginScreen({
       exit={{ opacity: 0 }}
       className="absolute inset-0 z-50 flex flex-col bg-background overflow-y-auto"
     >
+      {/* Top gradient bar */}
+      <div
+        className="w-full flex-shrink-0"
+        style={{
+          height: 3,
+          background:
+            "linear-gradient(90deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350), oklch(0.75 0.17 200))",
+        }}
+      />
+
       {/* Close button */}
       <div className="flex justify-end p-4 flex-shrink-0">
         <button
@@ -89,10 +99,27 @@ export function LoginScreen({
         transition={{ delay: 0.05 }}
         className="flex flex-col items-center px-6 pt-2 pb-8"
       >
-        <div className="w-16 h-16 rounded-2xl bg-vibe-green/10 border border-vibe-green/30 flex items-center justify-center mb-4">
-          <Music2 className="w-8 h-8 text-vibe-green" />
+        {/* Glow behind logo */}
+        <div className="relative mb-4">
+          <div
+            className="absolute inset-0 rounded-full blur-2xl opacity-50"
+            style={{
+              background:
+                "radial-gradient(circle, oklch(0.58 0.24 293 / 0.6), oklch(0.62 0.24 350 / 0.3) 60%, transparent)",
+              transform: "scale(1.5)",
+            }}
+          />
+          <img
+            src="/assets/generated/vibeplay-logo-color.dim_512x512.png"
+            alt="VibePlay"
+            className="relative w-16 h-16 object-contain"
+          />
         </div>
-        <h1 className="text-2xl font-bold text-foreground mb-1">VibePlay</h1>
+        <img
+          src="/assets/generated/vibeplay-wordmark-color.dim_400x100.png"
+          alt="VibePlay"
+          className="h-8 object-contain mb-1"
+        />
         <p className="text-sm text-muted-foreground">
           {mode === "login" ? "Welcome back" : "Create your account"}
         </p>
@@ -105,10 +132,14 @@ export function LoginScreen({
           data-ocid="login.tab"
           onClick={() => switchMode("login")}
           className={`flex-1 py-2.5 rounded-xl text-sm font-semibold touch-manipulation transition-all ${
-            mode === "login"
-              ? "bg-vibe-green text-black shadow-sm"
-              : "text-muted-foreground"
+            mode === "login" ? "shadow-sm text-white" : "text-muted-foreground"
           }`}
+          style={{
+            background:
+              mode === "login"
+                ? "linear-gradient(135deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350))"
+                : "transparent",
+          }}
         >
           Log In
         </button>
@@ -117,23 +148,34 @@ export function LoginScreen({
           data-ocid="login.signup.tab"
           onClick={() => switchMode("signup")}
           className={`flex-1 py-2.5 rounded-xl text-sm font-semibold touch-manipulation transition-all ${
-            mode === "signup"
-              ? "bg-vibe-green text-black shadow-sm"
-              : "text-muted-foreground"
+            mode === "signup" ? "shadow-sm text-white" : "text-muted-foreground"
           }`}
+          style={{
+            background:
+              mode === "signup"
+                ? "linear-gradient(135deg, oklch(0.62 0.24 350), oklch(0.58 0.24 293))"
+                : "transparent",
+          }}
         >
           Sign Up
         </button>
       </div>
 
-      {/* Form */}
+      {/* Form with gradient border */}
       <motion.form
         key={mode}
         initial={{ opacity: 0, x: mode === "login" ? -10 : 10 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.2 }}
         onSubmit={handleSubmit}
-        className="flex flex-col gap-4 px-6 flex-shrink-0"
+        className="flex flex-col gap-4 mx-6 px-4 py-5 rounded-2xl flex-shrink-0"
+        style={{
+          background: "oklch(0.13 0 0)",
+          border: "1px solid transparent",
+          backgroundClip: "padding-box",
+          boxShadow:
+            "0 0 0 1px oklch(0.58 0.24 293 / 0.25), 0 0 0 1px oklch(0.75 0.17 200 / 0.15)",
+        }}
         noValidate
       >
         <div className="flex flex-col gap-1.5">
@@ -208,11 +250,15 @@ export function LoginScreen({
           type="submit"
           data-ocid="login.submit_button"
           disabled={isLoading}
-          className="w-full py-3.5 rounded-2xl bg-vibe-green text-black font-bold text-sm touch-manipulation hover:bg-vibe-green/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+          className="w-full py-3.5 rounded-2xl font-bold text-sm text-white touch-manipulation active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+          style={{
+            background:
+              "linear-gradient(135deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350), oklch(0.75 0.17 200))",
+          }}
         >
           {isLoading ? (
             <span className="flex items-center justify-center gap-2">
-              <span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               {mode === "login" ? "Logging in…" : "Creating account…"}
             </span>
           ) : mode === "login" ? (

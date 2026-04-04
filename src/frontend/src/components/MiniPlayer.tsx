@@ -28,11 +28,15 @@ export function MiniPlayer({
       className="relative bg-[oklch(0.15_0_0)] border-t border-border overflow-hidden"
       style={{ flexShrink: 0 }}
     >
-      {/* Progress bar */}
+      {/* Gradient progress bar */}
       <div className="absolute top-0 left-0 right-0 h-0.5 bg-border">
         <motion.div
-          className="h-full bg-vibe-green"
-          style={{ width: `${progress}%` }}
+          className="h-full"
+          style={{
+            width: `${progress}%`,
+            background:
+              "linear-gradient(90deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350), oklch(0.75 0.17 200))",
+          }}
           transition={{ duration: 0.5 }}
         />
       </div>
@@ -76,7 +80,11 @@ export function MiniPlayer({
             type="button"
             data-ocid="miniplayer.toggle"
             onClick={onTogglePlay}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-vibe-green text-black touch-manipulation"
+            className="w-10 h-10 flex items-center justify-center rounded-full touch-manipulation text-white"
+            style={{
+              background:
+                "linear-gradient(135deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350))",
+            }}
           >
             {isPlaying ? (
               <Pause className="w-4 h-4 fill-current" />

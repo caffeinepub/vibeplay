@@ -1,4 +1,4 @@
-import { ChevronRight, Clock, LogOut, User } from "lucide-react";
+import { ChevronRight, Clock, LogOut, Search, User } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { FilterChipBar } from "../components/FilterChipBar";
@@ -92,8 +92,18 @@ export function HomeScreen({
   return (
     <>
       <div className="flex-1 overflow-y-auto scrollbar-hide">
+        {/* Gradient accent line at very top */}
+        <div
+          className="w-full"
+          style={{
+            height: 3,
+            background:
+              "linear-gradient(90deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350), oklch(0.75 0.17 200))",
+          }}
+        />
+
         {/* Header / Greeting */}
-        <div className="px-4 pt-6 pb-3">
+        <div className="px-4 pt-5 pb-3">
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -101,14 +111,30 @@ export function HomeScreen({
             className="flex items-start justify-between"
           >
             <div>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1">
-                Home
-              </p>
-              <h1 className="text-3xl font-bold text-foreground">
+              <div className="flex items-center gap-1.5 mb-1">
+                <img
+                  src="/assets/generated/vibeplay-logo-color.dim_512x512.png"
+                  alt=""
+                  className="w-4 h-4 object-contain"
+                />
+                <p className="text-xs font-bold uppercase tracking-widest gradient-text">
+                  VibePlay
+                </p>
+              </div>
+              <h1
+                className="text-3xl font-bold text-foreground"
+                style={{
+                  textShadow:
+                    "0 0 24px rgba(168,85,247,0.35), 0 0 48px rgba(236,72,153,0.15)",
+                }}
+              >
                 {getGreeting()}, {displayName} 👋
               </h1>
               {userCode && (
-                <p className="text-xs font-mono text-vibe-green/70 mt-0.5 tracking-widest">
+                <p
+                  className="text-xs font-mono mt-0.5 tracking-widest"
+                  style={{ color: "oklch(0.75 0.17 200)" }}
+                >
                   #{userCode}
                 </p>
               )}
@@ -129,16 +155,16 @@ export function HomeScreen({
                 className="w-8 h-8 rounded-full flex items-center justify-center touch-manipulation transition-colors"
                 style={{
                   background: isLoggedIn
-                    ? "oklch(var(--vibe-green) / 0.15)"
+                    ? "rgba(168,85,247,0.15)"
                     : "oklch(var(--muted))",
                   border: isLoggedIn
-                    ? "1.5px solid oklch(var(--vibe-green) / 0.4)"
+                    ? "1.5px solid rgba(168,85,247,0.4)"
                     : "1.5px solid oklch(var(--border))",
                 }}
                 aria-label={isLoggedIn ? "User menu" : "Log in"}
               >
                 {isLoggedIn && username ? (
-                  <span className="text-xs font-bold text-vibe-green">
+                  <span className="text-xs font-bold gradient-text">
                     {username.charAt(0).toUpperCase()}
                   </span>
                 ) : (
@@ -154,8 +180,12 @@ export function HomeScreen({
                     exit={{ opacity: 0, y: -6, scale: 0.95 }}
                     transition={{ duration: 0.15 }}
                     className="absolute right-0 top-10 w-44 rounded-2xl border border-border bg-[#1a1a1a] shadow-2xl z-50 overflow-hidden"
+                    style={{ borderColor: "rgba(168,85,247,0.25)" }}
                   >
-                    <div className="px-4 py-3 border-b border-border">
+                    <div
+                      className="px-4 py-3 border-b"
+                      style={{ borderColor: "rgba(168,85,247,0.15)" }}
+                    >
                       <p className="text-xs text-muted-foreground">
                         Signed in as
                       </p>
@@ -163,7 +193,10 @@ export function HomeScreen({
                         {username}
                       </p>
                       {userCode && (
-                        <p className="text-[10px] font-mono text-vibe-green/60 mt-0.5">
+                        <p
+                          className="text-[10px] font-mono mt-0.5"
+                          style={{ color: "oklch(0.75 0.17 200 / 0.7)" }}
+                        >
                           #{userCode}
                         </p>
                       )}
@@ -203,7 +236,10 @@ export function HomeScreen({
           <section className="px-4 mb-6">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
-                <Clock className="w-4 h-4 text-vibe-green" />
+                <Clock
+                  className="w-4 h-4"
+                  style={{ color: "oklch(0.58 0.24 293)" }}
+                />
                 Continue Listening
               </h2>
             </div>
@@ -218,6 +254,9 @@ export function HomeScreen({
                   transition={{ delay: i * 0.06 }}
                   onClick={() => onPlay(track, continueListening)}
                   className="flex items-center gap-3 w-full bg-muted/30 hover:bg-muted/50 active:bg-muted/70 rounded-xl p-2.5 touch-manipulation transition-colors"
+                  style={{
+                    borderLeft: "3px solid oklch(0.58 0.24 293 / 0.5)",
+                  }}
                 >
                   <img
                     src={track.thumbnail}
@@ -237,10 +276,11 @@ export function HomeScreen({
                       {[0, 1, 2].map((j) => (
                         <div
                           key={j}
-                          className="w-0.5 bg-vibe-green rounded-full animate-bounce"
+                          className="w-0.5 rounded-full animate-bounce"
                           style={{
                             height: `${50 + j * 25}%`,
                             animationDelay: `${j * 0.15}s`,
+                            background: "oklch(0.58 0.24 293)",
                           }}
                         />
                       ))}
@@ -277,7 +317,8 @@ export function HomeScreen({
               <button
                 type="button"
                 data-ocid={`home.mood.${mood.id}.button`}
-                className="flex items-center gap-1 text-xs text-vibe-green font-medium touch-manipulation"
+                className="flex items-center gap-1 text-xs font-medium touch-manipulation"
+                style={{ color: "oklch(0.62 0.24 350)" }}
               >
                 See all <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -336,8 +377,11 @@ export function HomeScreen({
                     </p>
                   </div>
                   {currentTrack?.id === track.id && (
-                    <div className="absolute top-2 right-2 w-5 h-5 bg-vibe-green rounded-full flex items-center justify-center">
-                      <div className="w-1.5 h-1.5 bg-black rounded-full animate-pulse" />
+                    <div
+                      className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
+                      style={{ background: "oklch(0.62 0.24 350)" }}
+                    >
+                      <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
                     </div>
                   )}
                 </motion.button>
@@ -350,7 +394,11 @@ export function HomeScreen({
         {recentSearches.length > 0 && (
           <section className="px-4 mb-6">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">
+              <h2 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+                <Search
+                  className="w-4 h-4"
+                  style={{ color: "oklch(0.75 0.17 200)" }}
+                />
                 Recent Searches
               </h2>
             </div>
@@ -376,11 +424,15 @@ export function HomeScreen({
         <footer className="px-4 py-6 border-t border-border mt-4">
           <div className="flex items-center gap-2 mb-2">
             <img
-              src="/assets/generated/vibeplay-logo-transparent.dim_120x120.png"
+              src="/assets/generated/vibeplay-logo-color.dim_512x512.png"
               alt="VibePlay"
-              className="w-6 h-6"
+              className="w-7 h-7 object-contain"
             />
-            <span className="text-sm font-bold text-foreground">VibePlay</span>
+            <img
+              src="/assets/generated/vibeplay-wordmark-color.dim_400x100.png"
+              alt="VibePlay"
+              className="h-5 object-contain"
+            />
           </div>
           <p className="text-xs text-muted-foreground">
             Made by{" "}
@@ -394,7 +446,8 @@ export function HomeScreen({
               href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-vibe-green hover:underline"
+              className="hover:underline"
+              style={{ color: "oklch(0.75 0.17 200)" }}
             >
               caffeine.ai
             </a>

@@ -10,6 +10,28 @@ interface RecommendationFeedProps {
   onLoadMore?: () => void;
 }
 
+// Section accent colours cycling: purple, cyan, amber, pink
+const SECTION_ACCENT_COLORS: Record<string, string> = {
+  recommended: "oklch(0.58 0.24 293)",
+  "because-watched": "oklch(0.75 0.17 200)",
+  trending: "oklch(0.72 0.19 55)",
+  "continue-watching": "oklch(0.62 0.24 350)",
+};
+
+const SECTION_ACCENT_FALLBACKS = [
+  "oklch(0.58 0.24 293)",
+  "oklch(0.75 0.17 200)",
+  "oklch(0.72 0.19 55)",
+  "oklch(0.62 0.24 350)",
+];
+
+function getSectionAccent(id: string, idx: number): string {
+  return (
+    SECTION_ACCENT_COLORS[id] ??
+    SECTION_ACCENT_FALLBACKS[idx % SECTION_ACCENT_FALLBACKS.length]
+  );
+}
+
 function SkeletonCard() {
   return (
     <div className="flex-shrink-0 w-28" style={{ height: 144 }}>
@@ -53,8 +75,14 @@ function TrackCard({
         </p>
       </div>
       {isPlaying && (
-        <div className="absolute top-2 right-2 w-5 h-5 bg-vibe-green rounded-full flex items-center justify-center">
-          <div className="w-1.5 h-1.5 bg-black rounded-full animate-pulse" />
+        <div
+          className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
+          style={{
+            background:
+              "linear-gradient(135deg, oklch(0.58 0.24 293), oklch(0.62 0.24 350))",
+          }}
+        >
+          <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
         </div>
       )}
     </motion.button>
@@ -75,6 +103,8 @@ export function RecommendationFeed({
         const hasContent = section.tracks.length > 0;
         if (!hasContent && !section.isLoading) return null;
 
+        const accentColor = getSectionAccent(section.id, sectionIdx);
+
         return (
           <motion.section
             key={section.id}
@@ -83,16 +113,25 @@ export function RecommendationFeed({
             transition={{ delay: sectionIdx * 0.07, duration: 0.35 }}
             className="mb-6"
           >
-            {/* Section header */}
-            <div className="px-4 mb-3">
-              <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                {section.title}
-              </h2>
-              {section.subtitle && (
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                  {section.subtitle}
-                </p>
-              )}
+            {/* Section header with coloured accent */}
+            <div className="px-4 mb-3 flex items-center gap-2">
+              <div
+                className="w-0.5 h-4 rounded-full flex-shrink-0"
+                style={{ background: accentColor }}
+              />
+              <div className="flex-1 min-w-0">
+                <h2
+                  className="text-sm font-bold uppercase tracking-wider"
+                  style={{ color: accentColor }}
+                >
+                  {section.title}
+                </h2>
+                {section.subtitle && (
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {section.subtitle}
+                  </p>
+                )}
+              </div>
             </div>
 
             {/* Cards row */}
@@ -125,17 +164,17 @@ export function RecommendationFeed({
                     className="flex-shrink-0 w-28 rounded-2xl flex flex-col items-center justify-center gap-1.5 touch-manipulation"
                     style={{
                       height: 144,
-                      background: "rgba(29,185,84,0.08)",
-                      border: "1.5px solid rgba(29,185,84,0.25)",
+                      background: "oklch(0.58 0.24 293 / 0.08)",
+                      border: "1.5px solid oklch(0.58 0.24 293 / 0.25)",
                     }}
                   >
                     <ChevronRight
                       className="w-5 h-5"
-                      style={{ color: "#1DB954" }}
+                      style={{ color: "oklch(0.58 0.24 293)" }}
                     />
                     <span
                       className="text-[11px] font-semibold"
-                      style={{ color: "#1DB954" }}
+                      style={{ color: "oklch(0.58 0.24 293)" }}
                     >
                       Load more
                     </span>
