@@ -20,6 +20,7 @@ import { LibraryScreen } from "./screens/LibraryScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { PlayerScreen } from "./screens/PlayerScreen";
 import { SearchScreen } from "./screens/SearchScreen";
+import { resolveTrackForPlayback } from "./services/youtubeService";
 import type { RepeatMode, TabName, Track } from "./types";
 
 const LS_ACTIVE_FILTERS = "vibeplay_active_filters";
@@ -45,6 +46,7 @@ export default function App() {
   const [activeFilters, setActiveFilters] = useState<string[]>(() =>
     readSavedFilters(),
   );
+  const [isResolvingTrack, setIsResolvingTrack] = useState(false);
 
   // Ref to track when a song started playing (for skip detection)
   const playStartTimeRef = useRef<number | null>(null);
@@ -65,7 +67,7 @@ export default function App() {
   // Backend user data
   const userData = useUserData(sessionToken, isLoggedIn);
 
-  // Smart recommendation engine (localStorage + YouTube API)
+  // Smart recommendation engine (localStorage + YouTube API + Last.fm)
   const recommendationEngine = useRecommendationEngine();
 
   useEffect(() => {
@@ -83,7 +85,7 @@ export default function App() {
   }, [currentTrack, player.updateMediaSession]);
 
   const handlePlay = useCallback(
-    (track: Track, queue: Track[] = [track]) => {
+    async (track: Track, queue: Track[] = [track]) => {
       // Skip detection: if previous track was playing < 10s, count as skip
       if (
         prevTrackIdRef.current &&
@@ -96,15 +98,40 @@ export default function App() {
         }
       }
 
-      prevTrackIdRef.current = track.id;
+      // Resolve YouTube ID for Last.fm/Spotify tracks before playback
+      let resolvedTrack = track;
+      let resolvedQueue = queue;
+      if (track.source === "lastfm" || track.source === "spotify") {
+        setIsResolvingTrack(true);
+        try {
+          resolvedTrack = await resolveTrackForPlayback(track);
+          // Also update this track in the queue so playback continues correctly
+          resolvedQueue = queue.map((t) =>
+            t.id === track.id ? resolvedTrack : t,
+          );
+        } catch {
+          // Fallback: use original track (playback may fail)
+          resolvedTrack = track;
+        } finally {
+          setIsResolvingTrack(false);
+        }
+      }
+
+      prevTrackIdRef.current = resolvedTrack.id;
       playStartTimeRef.current = Date.now();
 
-      const queueIndex = queue.findIndex((t) => t.id === track.id);
-      setCurrentTrack(track);
-      addToHistory(track);
-      userData.cacheTrack(track);
-      recommendationEngine.recordPlay(track);
-      player.playTrack(track, queue, queueIndex >= 0 ? queueIndex : 0);
+      const queueIndex = resolvedQueue.findIndex(
+        (t) => t.id === resolvedTrack.id,
+      );
+      setCurrentTrack(resolvedTrack);
+      addToHistory(resolvedTrack);
+      userData.cacheTrack(resolvedTrack);
+      recommendationEngine.recordPlay(resolvedTrack);
+      player.playTrack(
+        resolvedTrack,
+        resolvedQueue,
+        queueIndex >= 0 ? queueIndex : 0,
+      );
     },
     [
       player.playTrack,
@@ -273,6 +300,23 @@ export default function App() {
         }}
         aria-hidden="true"
       />
+
+      {/* Track resolution loading overlay (shown when fetching YouTube ID for Last.fm/Spotify tracks) */}
+      <AnimatePresence>
+        {isResolvingTrack && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-x-0 top-0 z-50 h-0.5 bg-gradient-to-r from-[#1DB954] via-purple-500 to-pink-500"
+            style={{
+              backgroundSize: "200%",
+              animation: "shimmer 1.5s infinite",
+            }}
+            data-ocid="app.loading_state"
+          />
+        )}
+      </AnimatePresence>
 
       {/* Page Content */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">

@@ -6,6 +6,11 @@ export interface Track {
   duration?: string;
   viewCount?: string;
   tags?: string[];
+  // Spotify/Last.fm enrichment fields
+  artist?: string;
+  album?: string;
+  albumArt?: string;
+  source?: "spotify" | "lastfm" | "youtube";
 }
 
 export interface Playlist {

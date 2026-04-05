@@ -13,7 +13,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { TrackItem } from "../components/TrackItem";
-import { useYouTubeSearch } from "../hooks/useYouTubeSearch";
+import { useSmartSearch } from "../hooks/useSmartSearch";
 import type { Playlist, Track } from "../types";
 import { buildTrackLabel } from "../utils/detectTrackMeta";
 
@@ -44,9 +44,9 @@ function groupByLabel(tracks: Track[]): { label: string; tracks: Track[] }[] {
       map.set(label, [track]);
     }
   }
-  return Array.from(map.entries()).map(([label, tracks]) => ({
+  return Array.from(map.entries()).map(([label, tracksArr]) => ({
     label,
-    tracks,
+    tracks: tracksArr,
   }));
 }
 
@@ -98,6 +98,16 @@ function formatViewCount(viewCount?: string): string {
   return `${v} views`;
 }
 
+/** Small Spotify source badge shown on tracks with rich Spotify metadata */
+function SpotifyBadge() {
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-[#1DB954] bg-[#1DB954]/10 border border-[#1DB954]/25 px-1.5 py-0.5 rounded-full leading-none">
+      <span className="text-[9px]">&#9654;</span>
+      Spotify
+    </span>
+  );
+}
+
 export function SearchScreen({
   initialQuery = "",
   currentTrack,
@@ -113,8 +123,15 @@ export function SearchScreen({
 }: SearchScreenProps) {
   const [query, setQuery] = useState(initialQuery);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { results, isLoading, error, search, isDemoMode, isFuzzyResult } =
-    useYouTubeSearch();
+  const {
+    results,
+    isLoading,
+    error,
+    search,
+    isDemoMode,
+    isFuzzyResult,
+    hasSpotifyResults,
+  } = useSmartSearch();
 
   useEffect(() => {
     if (initialQuery) {
@@ -161,6 +178,47 @@ export function SearchScreen({
     if (results.length > 0) setActiveTab("all");
   }, [results.length]);
 
+  /** Renders a track row with optional Spotify badge and album info */
+  function renderTrackRow(track: Track, idx: number, queue: Track[]) {
+    const displayThumbnail = track.albumArt || track.thumbnail;
+    const enrichedTrack = track.albumArt
+      ? { ...track, thumbnail: track.albumArt }
+      : track;
+
+    return (
+      <div key={track.id} className="relative">
+        {/* Spotify badge overlay */}
+        {track.source === "spotify" && (
+          <div className="absolute left-14 bottom-1.5 z-10">
+            <SpotifyBadge />
+          </div>
+        )}
+        {/* Album subtitle under channel name — rendered as overlay info */}
+        {track.album && (
+          <div className="absolute left-14 top-1 z-10 max-w-[120px]">
+            <span className="text-[9px] text-muted-foreground/60 truncate block">
+              {track.album}
+            </span>
+          </div>
+        )}
+        <TrackItem
+          track={enrichedTrack}
+          index={idx}
+          isPlaying={currentTrack?.id === track.id}
+          isFavorite={isFavorite(track.id)}
+          onPlay={(t) => onPlay(t, queue)}
+          onToggleFavorite={onToggleFavorite}
+          playlists={playlists}
+          onAddToPlaylist={onAddToPlaylist}
+          isLoggedIn={isLoggedIn}
+          onShowLogin={onShowLogin}
+        />
+        {/* Suppress unused var warning */}
+        {displayThumbnail && null}
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Search Bar */}
@@ -189,11 +247,25 @@ export function SearchScreen({
 
         {isDemoMode && (
           <p className="text-[11px] text-muted-foreground/60 mt-2 px-1">
-            Demo mode \u2014 add your YouTube API key in{" "}
+            Demo mode — add your YouTube API key in{" "}
             <code className="bg-muted px-1 rounded text-[10px]">
               constants.ts
             </code>
           </p>
+        )}
+
+        {/* Spotify enrichment badge */}
+        {hasSpotifyResults && !isLoading && results.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-2 px-1"
+          >
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#1DB954] bg-[#1DB954]/10 border border-[#1DB954]/20 px-2 py-0.5 rounded-full">
+              <span className="text-[11px]">&#9654;</span>
+              Enriched with Spotify metadata
+            </span>
+          </motion.div>
         )}
 
         {/* Fuzzy match badge */}
@@ -257,7 +329,7 @@ export function SearchScreen({
               className="flex flex-col items-center justify-center gap-3 py-20"
             >
               <Loader2 className="w-8 h-8 text-vibe-green animate-spin" />
-              <p className="text-sm text-muted-foreground">Searching\u2026</p>
+              <p className="text-sm text-muted-foreground">Searching…</p>
             </motion.div>
           ) : error ? (
             <motion.div
@@ -319,18 +391,7 @@ export function SearchScreen({
                                   {formatViewCount(track.viewCount)}
                                 </span>
                               )}
-                              <TrackItem
-                                track={track}
-                                index={idx}
-                                isPlaying={currentTrack?.id === track.id}
-                                isFavorite={isFavorite(track.id)}
-                                onPlay={(t) => onPlay(t, results)}
-                                onToggleFavorite={onToggleFavorite}
-                                playlists={playlists}
-                                onAddToPlaylist={onAddToPlaylist}
-                                isLoggedIn={isLoggedIn}
-                                onShowLogin={onShowLogin}
-                              />
+                              {renderTrackRow(track, idx, results)}
                             </div>
                           );
                         })}
@@ -368,18 +429,7 @@ export function SearchScreen({
                                         {formatViewCount(track.viewCount)}
                                       </span>
                                     )}
-                                    <TrackItem
-                                      track={track}
-                                      index={idx}
-                                      isPlaying={currentTrack?.id === track.id}
-                                      isFavorite={isFavorite(track.id)}
-                                      onPlay={(t) => onPlay(t, results)}
-                                      onToggleFavorite={onToggleFavorite}
-                                      playlists={playlists}
-                                      onAddToPlaylist={onAddToPlaylist}
-                                      isLoggedIn={isLoggedIn}
-                                      onShowLogin={onShowLogin}
-                                    />
+                                    {renderTrackRow(track, idx, results)}
                                   </div>
                                 );
                               })}
@@ -408,7 +458,10 @@ export function SearchScreen({
                           >
                             <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-border group-hover:border-vibe-green/50 transition-colors">
                               <img
-                                src={artist.topTrack.thumbnail}
+                                src={
+                                  artist.topTrack.albumArt ||
+                                  artist.topTrack.thumbnail
+                                }
                                 alt={artist.channelName}
                                 className="w-full h-full object-cover"
                               />
@@ -441,18 +494,7 @@ export function SearchScreen({
                               <span className="absolute right-4 top-3 z-10 text-[9px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded-full">
                                 {formatViewCount(track.viewCount)}
                               </span>
-                              <TrackItem
-                                track={track}
-                                index={idx}
-                                isPlaying={currentTrack?.id === track.id}
-                                isFavorite={isFavorite(track.id)}
-                                onPlay={(t) => onPlay(t, results)}
-                                onToggleFavorite={onToggleFavorite}
-                                playlists={playlists}
-                                onAddToPlaylist={onAddToPlaylist}
-                                isLoggedIn={isLoggedIn}
-                                onShowLogin={onShowLogin}
-                              />
+                              {renderTrackRow(track, idx, results)}
                             </div>
                           );
                         })}
@@ -474,21 +516,7 @@ export function SearchScreen({
                     {results.map((track) => {
                       globalIndex += 1;
                       const idx = globalIndex;
-                      return (
-                        <TrackItem
-                          key={track.id}
-                          track={track}
-                          index={idx}
-                          isPlaying={currentTrack?.id === track.id}
-                          isFavorite={isFavorite(track.id)}
-                          onPlay={(t) => onPlay(t, results)}
-                          onToggleFavorite={onToggleFavorite}
-                          playlists={playlists}
-                          onAddToPlaylist={onAddToPlaylist}
-                          isLoggedIn={isLoggedIn}
-                          onShowLogin={onShowLogin}
-                        />
-                      );
+                      return renderTrackRow(track, idx, results);
                     })}
                   </div>
                 </>
@@ -513,7 +541,10 @@ export function SearchScreen({
                       >
                         <div className="w-12 h-12 rounded-full overflow-hidden border border-border flex-shrink-0">
                           <img
-                            src={artist.topTrack.thumbnail}
+                            src={
+                              artist.topTrack.albumArt ||
+                              artist.topTrack.thumbnail
+                            }
                             alt={artist.channelName}
                             className="w-full h-full object-cover"
                           />
@@ -551,18 +582,7 @@ export function SearchScreen({
                           <span className="absolute right-4 top-3 z-10 text-[9px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded-full">
                             {formatViewCount(track.viewCount)}
                           </span>
-                          <TrackItem
-                            track={track}
-                            index={idx}
-                            isPlaying={currentTrack?.id === track.id}
-                            isFavorite={isFavorite(track.id)}
-                            onPlay={(t) => onPlay(t, results)}
-                            onToggleFavorite={onToggleFavorite}
-                            playlists={playlists}
-                            onAddToPlaylist={onAddToPlaylist}
-                            isLoggedIn={isLoggedIn}
-                            onShowLogin={onShowLogin}
-                          />
+                          {renderTrackRow(track, idx, results)}
                         </div>
                       );
                     })}

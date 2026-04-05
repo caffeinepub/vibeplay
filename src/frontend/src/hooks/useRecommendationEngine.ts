@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { YOUTUBE_API_BASE, fetchWithKeyFallback } from "../constants";
+import {
+  getLastFmSimilarTracks,
+  getLastFmTopTracks,
+  lastFmTrackToTrack,
+} from "../services/lastfmService";
 import type {
   BehaviorEvent,
   RecommendationSection,
@@ -166,6 +171,54 @@ async function fetchLangMoodTracks(query: string): Promise<Track[]> {
   }
 }
 
+/**
+ * Fetches Last.fm global top tracks and returns them as a RecommendationSection.
+ * Tracks retain source='lastfm' and need YouTube ID resolution before playback.
+ */
+async function fetchLastFmTrendingSection(): Promise<RecommendationSection | null> {
+  try {
+    const raw = await getLastFmTopTracks(20);
+    const tracks = raw.map(lastFmTrackToTrack);
+    if (tracks.length === 0) return null;
+    return {
+      id: "lastfm-trending",
+      title: "Trending Now",
+      subtitle: "Global charts via Last.fm",
+      tracks: shuffleArray(enforceArtistDiversity(tracks, 2)),
+      isLoading: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches Last.fm similar tracks for the last played song.
+ * Returns a RecommendationSection or null if no data.
+ */
+async function fetchSimilarArtistsSection(
+  lastPlayed: Track | null,
+): Promise<RecommendationSection | null> {
+  if (!lastPlayed) return null;
+  const artistName = lastPlayed.artist ?? lastPlayed.channelName;
+  if (!artistName) return null;
+
+  try {
+    const raw = await getLastFmSimilarTracks(artistName, lastPlayed.title, 10);
+    const tracks = raw.map(lastFmTrackToTrack);
+    if (tracks.length === 0) return null;
+    return {
+      id: "similar-artists",
+      title: "Similar Artists",
+      subtitle: `Based on ${lastPlayed.title}`,
+      tracks: enforceArtistDiversity(deduplicateVersions(tracks), 2),
+      isLoading: false,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function useRecommendationEngine() {
   const [prefs, setPrefs] = useState<UserPreferences>(() =>
     readJson<UserPreferences>(LS_USER_PREFERENCES, DEFAULT_PREFS),
@@ -185,7 +238,7 @@ export function useRecommendationEngine() {
     activeFiltersRef.current = activeFilters;
   }, [activeFilters]);
 
-  // ─── Behavior recording ───────────────────────────────────────────────────────────
+  // ─── Behavior recording ─────────────────────────────────────────────────────────────
   const appendEvent = useCallback((event: BehaviorEvent) => {
     const events = readJson<BehaviorEvent[]>(LS_BEHAVIOR_EVENTS, []);
     const next = [...events, event].slice(-MAX_BEHAVIOR_EVENTS);
@@ -300,7 +353,7 @@ export function useRecommendationEngine() {
     });
   }, []);
 
-  // ─── Filter sections fetch ─────────────────────────────────────────────
+  // ─── Filter sections fetch ───────────────────────────────────────
   /**
    * Fetches a YouTube search for the active filter chips and returns a
    * RecommendationSection to be placed at the TOP of the sections list.
@@ -366,7 +419,7 @@ export function useRecommendationEngine() {
     [],
   );
 
-  // ─── Sections builder ─────────────────────────────────────────────────
+  // ─── Sections builder ─────────────────────────────────────
   const buildSections = useCallback(
     async (currentPrefs: UserPreferences, showCount: number) => {
       if (buildingRef.current) return;
@@ -444,8 +497,6 @@ export function useRecommendationEngine() {
         recAllTracks = shuffleArray(mixedRecs);
 
         // ── 4. Trending in Your Interest ──
-        // If the last played track is Indian, prepend its language to the trending query
-        // for more relevant trending results.
         let topTag =
           Object.entries(currentPrefs.tagScores).sort(
             (a, b) => b[1] - a[1],
@@ -459,8 +510,6 @@ export function useRecommendationEngine() {
             lastPlayed.channelName,
           );
           if (langMoodQ) {
-            // Use language+mood as the trending query if it's more specific
-            // than the generic top tag
             const topTagIsGeneric =
               !topTag.includes("hindi") &&
               !topTag.includes("haryanvi") &&
@@ -517,11 +566,19 @@ export function useRecommendationEngine() {
           enforceArtistDiversity(deduplicateVersions(trendingTracks), 2),
         );
 
-        // ── 5. Filter section (placed at top if filters are active) ──
+        // ── 5. Last.fm Trending Now + Similar Artists (fetched in parallel) ──
+        const [lastFmTrendingSection, similarArtistsSection] =
+          await Promise.all([
+            fetchLastFmTrendingSection(),
+            fetchSimilarArtistsSection(lastPlayed),
+          ]);
+
+        // ── 6. Filter section (placed at top if filters are active) ──
         const filterSection =
           filters.length > 0 ? await fetchFilterSection(filters) : null;
 
         // Assemble base sections
+        // Order: continue, recommended, lastfm-trending, similar-artists, because, trending
         const baseSections: RecommendationSection[] = [
           {
             id: "continue",
@@ -535,6 +592,10 @@ export function useRecommendationEngine() {
             tracks: recAllTracks.slice(0, showCount),
             isLoading: false,
           },
+          // Last.fm Trending Now (after Recommended for You)
+          ...(lastFmTrendingSection ? [lastFmTrendingSection] : []),
+          // Last.fm Similar Artists (after Trending Now)
+          ...(similarArtistsSection ? [similarArtistsSection] : []),
           {
             id: "because",
             title: "Because You Watched",
@@ -566,7 +627,7 @@ export function useRecommendationEngine() {
     [fetchFilterSection],
   );
 
-  // ─── Debounced rebuild trigger ─────────────────────────────────────────────
+  // ─── Debounced rebuild trigger ───────────────────────────────────
   const triggerRebuild = useCallback(
     (p: UserPreferences, count: number) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
