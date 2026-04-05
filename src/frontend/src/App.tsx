@@ -12,7 +12,7 @@ import {
   useRecentSearches,
 } from "./hooks/useLocalStorage";
 import { useRecommendationEngine } from "./hooks/useRecommendationEngine";
-import { useRelatedTracks } from "./hooks/useRelatedTracks";
+import { recordPlayedTrack, useRelatedTracks } from "./hooks/useRelatedTracks";
 import { useUserData } from "./hooks/useUserData";
 import { useYouTubePlayer } from "./hooks/useYouTubePlayer";
 import { HomeScreen } from "./screens/HomeScreen";
@@ -127,6 +127,7 @@ export default function App() {
       addToHistory(resolvedTrack);
       userData.cacheTrack(resolvedTrack);
       recommendationEngine.recordPlay(resolvedTrack);
+      recordPlayedTrack(resolvedTrack);
       player.playTrack(
         resolvedTrack,
         resolvedQueue,

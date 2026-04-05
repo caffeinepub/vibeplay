@@ -8,7 +8,8 @@ import {
   parseYouTubeError,
 } from "../constants";
 import type { Track } from "../types";
-import { cacheKey } from "../utils/apiCache";
+import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
+import { findBestYouTubeMatch } from "../utils/youtubeMatchEngine";
 
 // Re-export for consumers that only need YouTube utilities
 export { YOUTUBE_API_BASE, fetchWithKeyFallback };
@@ -29,13 +30,20 @@ export function buildOfficialAudioQuery(
 
 /**
  * Search YouTube for the best official audio match for a song.
- * Returns the videoId of the first result, or null on failure.
- * Limited to music category (videoCategoryId=10).
+ * Uses the intelligent scoring engine: fetches 15 results, scores each,
+ * rejects blocked keywords, returns the best match's videoId.
+ * Returns null on failure.
  */
 export async function searchYouTubeForTrack(
   songName: string,
   artistName: string,
+  durationMs?: number,
 ): Promise<string | null> {
+  // Try the match engine first (smarter, scored)
+  const match = await findBestYouTubeMatch(songName, artistName, durationMs);
+  if (match) return match.videoId;
+
+  // Fallback: simple first-result search (for quick resolves)
   const query = buildOfficialAudioQuery(songName, artistName);
   try {
     const res = await fetchWithKeyFallback((key) => {
@@ -48,9 +56,7 @@ export async function searchYouTubeForTrack(
       url.searchParams.set("key", key);
       return url.toString();
     });
-
     if (!res.ok) return null;
-
     const data = await res.json();
     const firstItem = data.items?.[0];
     return firstItem?.id?.videoId ?? null;
@@ -79,20 +85,17 @@ export async function resolveTrackForPlayback(track: Track): Promise<Track> {
 
   // Check cache for previously resolved ID
   const ck = cacheKey("yt_resolve", songName, artistName);
-  const { cacheGet } = await import("../utils/apiCache");
   const cachedId = cacheGet<string>(ck);
-
   if (cachedId) {
     return { ...track, id: cachedId };
   }
 
+  // Use match engine for best result
   const videoId = await searchYouTubeForTrack(songName, artistName);
   if (!videoId) {
-    // Return original track — playback may fail but don't crash
     return track;
   }
 
-  const { cacheSet } = await import("../utils/apiCache");
   cacheSet(ck, videoId);
   return { ...track, id: videoId };
 }
@@ -116,7 +119,6 @@ export async function enrichTracksWithYouTubeIds(
 
   const enriched: Track[] = [];
   const batchSize = 5;
-  const { cacheGet, cacheSet } = await import("../utils/apiCache");
 
   for (let i = 0; i < Math.min(toEnrich.length, batchSize); i++) {
     if (i > 0) {

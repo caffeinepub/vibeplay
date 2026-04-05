@@ -1,86 +1,196 @@
+/**
+ * Smart "Up Next" recommendation hook.
+ *
+ * Flow:
+ *  1. PRIMARY: Spotify /v1/recommendations (seed_tracks + seed_artists) → 15-20 tracks
+ *  2. FALLBACK: Last.fm track.getsimilar if Spotify unavailable
+ *  3. For each candidate track: resolve to a YouTube video via youtubeMatchEngine
+ *     — strict blocked-keyword filtering, scored matching, official audio priority
+ *  4. Apply anti-repetition (last 10 play history), artist diversity (max 2/artist),
+ *     version deduplication
+ *  5. Build queue of up to 12 unique, diverse tracks
+ */
 import { useEffect, useRef, useState } from "react";
 import {
-  YOUTUBE_API_BASE,
-  YOUTUBE_API_KEY,
-  fetchWithKeyFallback,
+  SPOTIFY_API_BASE,
+  SPOTIFY_AUTH_URL,
+  SPOTIFY_CLIENT_ID,
+  SPOTIFY_CLIENT_SECRET,
 } from "../constants";
-import { MOCK_TRACKS } from "../data/mockData";
+import { getLastFmSimilarTracks } from "../services/lastfmService";
 import type { Track } from "../types";
 import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
-import { buildIndianLanguageMoodQuery } from "../utils/detectTrackMeta";
-import {
-  applyExplorationFactor,
-  deduplicateVersions,
-  enforceArtistDiversity,
-} from "../utils/versionDedup";
+import { normalizeKey } from "../utils/playHistory";
+import { findBestYouTubeMatch } from "../utils/youtubeMatchEngine";
 
-const IS_DEMO = !YOUTUBE_API_KEY || YOUTUBE_API_KEY.includes("placeholder");
+const MAX_QUEUE = 12;
+const SPOTIFY_RECS_LIMIT = 20;
 
-const LS_CONTINUE_LISTENING = "vibeplay_continue_listening";
+// ─────────────────────────────────────────────────────────────────────────────
+// Spotify helpers (inline to avoid needing client secret in spotifyService)
+// ─────────────────────────────────────────────────────────────────────────────
 
-function parseDuration(iso: string): string {
-  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!match) return "0:00";
-  const h = Number.parseInt(match[1] || "0");
-  const m = Number.parseInt(match[2] || "0");
-  const s = Number.parseInt(match[3] || "0");
-  if (h > 0)
-    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
+const SPOTIFY_TOKEN_KEY = "vibeplay_spotify_token_v2";
+const TOKEN_TTL = 55 * 60 * 1000;
 
-function buildRelatedQuery(title: string, channelName: string): string {
-  const clean = title
-    .replace(/\(.*?\)/g, "")
-    .replace(/\[.*?\]/g, "")
-    .replace(/ft\.?|feat\.?|official|video|audio|lyrics|full|hd|hq/gi, "")
-    .replace(/[|\-\u2013\u2014]/g, " ")
-    .trim();
+async function getSpotifyToken(): Promise<string | null> {
+  if (!SPOTIFY_CLIENT_SECRET || !SPOTIFY_CLIENT_ID) return null;
+  try {
+    const cached = cacheGet<{ token: string; expiresAt: number }>(
+      SPOTIFY_TOKEN_KEY,
+    );
+    if (cached && Date.now() < cached.expiresAt) return cached.token;
 
-  const artist = channelName
-    .replace(/VEVO|Records|Music|Official|Channel/gi, "")
-    .trim()
-    .split(" ")
-    .slice(0, 2)
-    .join(" ");
-
-  const combined = `${artist} ${clean}`.trim();
-  return combined.length > 5 ? combined : clean;
+    const credentials = btoa(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`);
+    const res = await fetch(SPOTIFY_AUTH_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const token = data.access_token as string;
+    if (!token) return null;
+    cacheSet(SPOTIFY_TOKEN_KEY, { token, expiresAt: Date.now() + TOKEN_TTL });
+    return token;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Reads watch history from localStorage and extracts tracks cached in recommendation cache.
- * Returns up to `limit` tracks NOT in the excluded ID set — zero extra API calls.
+ * Search Spotify for the current track to get its Spotify track ID + artist ID.
  */
-function getHistoryBasedTracks(
-  excludeIds: Set<string>,
-  limit: number,
-): Track[] {
-  try {
-    const raw = localStorage.getItem(LS_CONTINUE_LISTENING);
-    if (!raw) return [];
-    const history: Track[] = JSON.parse(raw);
-    const recentHistory = history
-      .filter((t) => !excludeIds.has(t.id))
-      .slice(-5); // last 5 played (excluding current)
+async function resolveSpotifyIds(
+  title: string,
+  artist: string,
+  token: string,
+): Promise<{ trackId: string | null; artistId: string | null }> {
+  const ck = cacheKey("sp_resolve", title, artist);
+  const cached = cacheGet<{ trackId: string | null; artistId: string | null }>(
+    ck,
+  );
+  if (cached) return cached;
 
-    const historyBased: Track[] = [];
-    for (const histTrack of recentHistory) {
-      const cached = cacheGet<Track[]>(cacheKey("related", histTrack.id));
-      if (!cached) continue;
-      for (const t of cached) {
-        if (!excludeIds.has(t.id) && !historyBased.some((x) => x.id === t.id)) {
-          historyBased.push(t);
-          if (historyBased.length >= limit) break;
-        }
-      }
-      if (historyBased.length >= limit) break;
-    }
-    return historyBased;
+  const query = `track:${title} artist:${artist}`;
+  try {
+    const url = new URL(`${SPOTIFY_API_BASE}/search`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("type", "track");
+    url.searchParams.set("limit", "3");
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return { trackId: null, artistId: null };
+    const data = await res.json();
+    const first = data.tracks?.items?.[0];
+    if (!first) return { trackId: null, artistId: null };
+    const result = {
+      trackId: first.id as string,
+      artistId: (first.artists?.[0]?.id ?? null) as string | null,
+    };
+    cacheSet(ck, result);
+    return result;
+  } catch {
+    return { trackId: null, artistId: null };
+  }
+}
+
+export interface SpotifyRecTrack {
+  id: string;
+  name: string;
+  artists: { id: string; name: string }[];
+  album: { images: { url: string }[] };
+  duration_ms: number;
+  popularity: number;
+}
+
+/**
+ * Fetch Spotify recommendations using seed track and/or seed artist.
+ */
+async function fetchSpotifyRecommendations(
+  trackId: string | null,
+  artistId: string | null,
+  token: string,
+): Promise<SpotifyRecTrack[]> {
+  if (!trackId && !artistId) return [];
+
+  const ck = cacheKey("sp_recs_v2", trackId ?? "", artistId ?? "");
+  const cached = cacheGet<SpotifyRecTrack[]>(ck);
+  if (cached) return cached;
+
+  try {
+    const url = new URL(`${SPOTIFY_API_BASE}/recommendations`);
+    if (trackId) url.searchParams.set("seed_tracks", trackId);
+    if (artistId) url.searchParams.set("seed_artists", artistId);
+    url.searchParams.set("limit", String(SPOTIFY_RECS_LIMIT));
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const tracks: SpotifyRecTrack[] = data.tracks ?? [];
+    cacheSet(ck, tracks);
+    return tracks;
   } catch {
     return [];
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Play history helpers (session-level)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LS_HISTORY = "vibeplay_up_next_history";
+const MAX_HISTORY = 10;
+
+interface HistEntry {
+  id: string;
+  titleKey: string; // normalizeKey(title, artist)
+}
+
+function getHistory(): HistEntry[] {
+  try {
+    const raw = localStorage.getItem(LS_HISTORY);
+    return raw ? (JSON.parse(raw) as HistEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function recordPlayedTrack(track: Track): void {
+  try {
+    const entry: HistEntry = {
+      id: track.id,
+      titleKey: normalizeKey(track.title, track.artist ?? track.channelName),
+    };
+    const history = getHistory();
+    const filtered = history.filter(
+      (h) => h.id !== entry.id && h.titleKey !== entry.titleKey,
+    );
+    const updated = [entry, ...filtered].slice(0, MAX_HISTORY);
+    localStorage.setItem(LS_HISTORY, JSON.stringify(updated));
+  } catch {
+    // ignore
+  }
+}
+
+function isInHistory(
+  ytVideoId: string,
+  titleKey: string,
+  historyIds: Set<string>,
+  historyKeys: Set<string>,
+): boolean {
+  return historyIds.has(ytVideoId) || historyKeys.has(titleKey);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main hook
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function useRelatedTracks(track: Track | null) {
   const [relatedTracks, setRelatedTracks] = useState<Track[]>([]);
@@ -89,12 +199,10 @@ export function useRelatedTracks(track: Track | null) {
 
   useEffect(() => {
     const trackId = track?.id ?? null;
-
     if (!track || !trackId) {
       setRelatedTracks([]);
       return;
     }
-
     if (trackIdRef.current === trackId) return;
     trackIdRef.current = trackId;
 
@@ -104,19 +212,8 @@ export function useRelatedTracks(track: Track | null) {
       if (!track) return;
       setIsLoading(true);
 
-      // Demo mode
-      if (IS_DEMO) {
-        await new Promise((r) => setTimeout(r, 700));
-        if (cancelled) return;
-        const others = MOCK_TRACKS.filter((t) => t.id !== track.id);
-        const shuffled = [...others].sort(() => Math.random() - 0.5);
-        setRelatedTracks(shuffled.slice(0, 8));
-        setIsLoading(false);
-        return;
-      }
-
-      // Check cache first
-      const ck = cacheKey("related", track.id);
+      // Check final output cache first
+      const ck = cacheKey("upnext_v3", track.id);
       const cached = cacheGet<Track[]>(ck);
       if (cached) {
         if (!cancelled) {
@@ -127,185 +224,163 @@ export function useRelatedTracks(track: Track | null) {
       }
 
       try {
-        // ── Step 1: Try relatedToVideoId (YouTube's native related videos) ──
-        let primaryIds: string[] = [];
-        let relatedApiWorked = false;
+        const currentTitle = track.title;
+        const currentArtist = track.artist ?? track.channelName;
 
-        try {
-          const relatedRes = await fetchWithKeyFallback((key) => {
-            const url = new URL(`${YOUTUBE_API_BASE}/search`);
-            url.searchParams.set("part", "snippet");
-            url.searchParams.set("relatedToVideoId", track.id);
-            url.searchParams.set("type", "video");
-            url.searchParams.set("videoCategoryId", "10");
-            url.searchParams.set("maxResults", "8");
-            url.searchParams.set("key", key);
-            return url.toString();
-          });
+        // Build history sets for dedup
+        const history = getHistory();
+        const historyIds = new Set(history.map((h) => h.id));
+        const historyKeys = new Set(history.map((h) => h.titleKey));
+        // Also exclude the currently playing track
+        historyIds.add(track.id);
+        historyKeys.add(normalizeKey(currentTitle, currentArtist));
 
-          if (relatedRes.ok) {
-            const relatedData = await relatedRes.json();
-            const ids: string[] = (relatedData.items ?? [])
-              .filter((item: { id: { videoId?: string } }) => item.id.videoId)
-              .map((item: { id: { videoId: string } }) => item.id.videoId)
-              .filter((id: string) => id !== track.id);
-            primaryIds = ids;
-            relatedApiWorked = ids.length >= 4;
-          }
-        } catch {
-          // relatedToVideoId not available — fall through to title/artist search
-        }
+        // ── Step 1: Try Spotify recommendations ────────────────────────────
+        let candidates: Array<{
+          name: string;
+          artist: string;
+          thumbnail: string;
+          durationMs?: number;
+          spotifyId?: string;
+        }> = [];
 
-        // ── Step 2: If relatedToVideoId returned < 4 results, also do title/artist search ──
-        const relatedQuery = buildRelatedQuery(track.title, track.channelName);
-        if (!relatedApiWorked) {
-          const searchRes = await fetchWithKeyFallback((key) => {
-            const searchUrl = new URL(`${YOUTUBE_API_BASE}/search`);
-            searchUrl.searchParams.set("part", "snippet");
-            searchUrl.searchParams.set("q", relatedQuery);
-            searchUrl.searchParams.set("type", "video");
-            searchUrl.searchParams.set("videoCategoryId", "10");
-            searchUrl.searchParams.set("maxResults", "8");
-            searchUrl.searchParams.set("key", key);
-            return searchUrl.toString();
-          });
+        const token = await getSpotifyToken();
+        if (token) {
+          const { trackId: spTrackId, artistId: spArtistId } =
+            await resolveSpotifyIds(currentTitle, currentArtist, token);
 
-          if (searchRes.ok) {
-            const searchData = await searchRes.json();
-            const fallbackIds: string[] = (searchData.items ?? [])
-              .filter((item: { id: { videoId?: string } }) => item.id.videoId)
-              .map((item: { id: { videoId: string } }) => item.id.videoId)
-              .filter((id: string) => id !== track.id);
+          if (spTrackId || spArtistId) {
+            const recs = await fetchSpotifyRecommendations(
+              spTrackId,
+              spArtistId,
+              token,
+            );
 
-            // Merge unique IDs — relatedToVideoId results take priority
-            const merged = [...primaryIds];
-            for (const id of fallbackIds) {
-              if (!merged.includes(id)) merged.push(id);
-            }
-            primaryIds = merged;
-          }
-        }
-
-        // ── Step 3: Language + mood search (Indian songs only) ──
-        // Detect if the current track is an Indian-language song; if so, fetch
-        // additional results using a language+mood query to improve relevance.
-        const langMoodQuery = buildIndianLanguageMoodQuery(
-          track.title,
-          track.channelName,
-        );
-        if (langMoodQuery) {
-          const langMoodCk = cacheKey("langmood", langMoodQuery);
-          let langMoodIds = cacheGet<string[]>(langMoodCk) ?? [];
-
-          if (langMoodIds.length === 0) {
-            try {
-              const langMoodRes = await fetchWithKeyFallback((key) => {
-                const url = new URL(`${YOUTUBE_API_BASE}/search`);
-                url.searchParams.set("part", "snippet");
-                url.searchParams.set("q", langMoodQuery);
-                url.searchParams.set("type", "video");
-                url.searchParams.set("videoCategoryId", "10");
-                url.searchParams.set("maxResults", "6");
-                url.searchParams.set("key", key);
-                return url.toString();
+            for (const r of recs) {
+              const artistName = r.artists[0]?.name ?? "";
+              const thumbnail = r.album.images[0]?.url ?? "";
+              candidates.push({
+                name: r.name,
+                artist: artistName,
+                thumbnail,
+                durationMs: r.duration_ms,
+                spotifyId: r.id,
               });
-              if (langMoodRes.ok) {
-                const data = await langMoodRes.json();
-                langMoodIds = (data.items ?? [])
-                  .filter(
-                    (item: { id: { videoId?: string } }) => item.id.videoId,
-                  )
-                  .map((item: { id: { videoId: string } }) => item.id.videoId)
-                  .filter((id: string) => id !== track.id);
-                cacheSet(langMoodCk, langMoodIds);
-              }
-            } catch {
-              // fail silently — language/mood enhancement is best-effort
             }
-          }
-
-          // Merge language+mood IDs into the pool (append after title/artist matches)
-          for (const id of langMoodIds) {
-            if (!primaryIds.includes(id)) primaryIds.push(id);
           }
         }
 
-        // Cap at 10 IDs before the details fetch to avoid large batch calls
-        primaryIds = primaryIds.slice(0, 10);
+        // ── Step 2: Last.fm fallback ──────────────────────────────────────────
+        if (candidates.length < 8) {
+          try {
+            const similar = await getLastFmSimilarTracks(
+              currentArtist,
+              currentTitle,
+              15,
+            );
+            for (const t of similar) {
+              const artistName =
+                typeof t.artist === "string" ? t.artist : t.artist.name;
+              const thumbnail =
+                t.image?.find((i) => i.size === "large")?.["#text"] ??
+                t.image?.[0]?.["#text"] ??
+                "";
+              // Avoid pushing candidates already found via Spotify
+              const alreadyIn = candidates.some(
+                (c) =>
+                  normalizeKey(c.name, c.artist) ===
+                  normalizeKey(t.name, artistName),
+              );
+              if (!alreadyIn) {
+                candidates.push({
+                  name: t.name,
+                  artist: artistName,
+                  thumbnail,
+                });
+              }
+            }
+          } catch {
+            // Last.fm optional
+          }
+        }
 
-        if (primaryIds.length === 0) {
+        if (candidates.length === 0 || cancelled) {
           if (!cancelled) setRelatedTracks([]);
           return;
         }
 
-        // ── Step 4: Fetch video details in a single API call ──
-        const detailsRes = await fetchWithKeyFallback((key) => {
-          const detailsUrl = new URL(`${YOUTUBE_API_BASE}/videos`);
-          detailsUrl.searchParams.set("part", "contentDetails,snippet");
-          detailsUrl.searchParams.set("id", primaryIds.join(","));
-          detailsUrl.searchParams.set("key", key);
-          return detailsUrl.toString();
+        // ── Step 3: Anti-repetition filter (history + current track) ─────────
+        candidates = candidates.filter((c) => {
+          const titleKey = normalizeKey(c.name, c.artist);
+          // Only check by titleKey here (we don't have YT ID yet)
+          return !historyKeys.has(titleKey);
         });
-        if (!detailsRes.ok) throw new Error("Details fetch failed");
-        const detailsData = await detailsRes.json();
 
-        const primaryTracks: Track[] = (detailsData.items ?? []).map(
-          (item: {
-            id: string;
-            snippet: {
-              title: string;
-              channelTitle: string;
-              thumbnails: { medium: { url: string } };
-            };
-            contentDetails: { duration: string };
-          }) => ({
-            id: item.id,
-            title: item.snippet.title,
-            channelName: item.snippet.channelTitle,
-            thumbnail: item.snippet.thumbnails.medium.url,
-            duration: parseDuration(item.contentDetails.duration),
-          }),
-        );
+        // ── Step 4: Artist diversity (max 2 per artist) ────────────────────
+        const artistCount = new Map<string, number>();
+        candidates = candidates.filter((c) => {
+          const normArtist = c.artist.toLowerCase().trim();
+          const count = artistCount.get(normArtist) ?? 0;
+          if (count >= 2) return false;
+          artistCount.set(normArtist, count + 1);
+          return true;
+        });
 
-        // ── Step 5: Mix in history-based tracks (zero extra API calls) ──
-        const primaryIdSet = new Set([
-          track.id,
-          ...primaryTracks.map((t) => t.id),
-        ]);
-        const historyTracks = getHistoryBasedTracks(primaryIdSet, 3);
+        // ── Step 5: Resolve each candidate to a YouTube video via match engine ─
+        // Process up to 20 candidates, stop when we have MAX_QUEUE good results
+        const resolvedTracks: Track[] = [];
+        const seenTitleKeys = new Set<string>();
+        const seenYtIds = new Set<string>([track.id]);
 
-        // ── Step 6: Combine ──
-        const combined = [...primaryTracks, ...historyTracks];
-        const seen = new Set<string>([track.id]);
-        const result: Track[] = [];
-        for (const t of combined) {
-          if (!seen.has(t.id)) {
-            seen.add(t.id);
-            result.push(t);
+        const toProcess = candidates.slice(0, 20);
+
+        for (const candidate of toProcess) {
+          if (cancelled) break;
+          if (resolvedTracks.length >= MAX_QUEUE) break;
+
+          const titleKey = normalizeKey(candidate.name, candidate.artist);
+          if (seenTitleKeys.has(titleKey)) continue;
+
+          // Also check against full history (after we have titleKey)
+          if (isInHistory("", titleKey, historyIds, historyKeys)) continue;
+
+          try {
+            const match = await findBestYouTubeMatch(
+              candidate.name,
+              candidate.artist,
+              candidate.durationMs,
+            );
+
+            if (!match || match.confidence < 0.15) continue;
+
+            // Skip if we've already queued this YT video
+            if (seenYtIds.has(match.videoId)) continue;
+            // Skip if YT video ID is in history
+            if (historyIds.has(match.videoId)) continue;
+
+            seenTitleKeys.add(titleKey);
+            seenYtIds.add(match.videoId);
+
+            resolvedTracks.push({
+              id: match.videoId,
+              title: candidate.name,
+              channelName: candidate.artist,
+              artist: candidate.artist,
+              thumbnail: match.thumbnail || candidate.thumbnail,
+              duration: match.duration,
+              source: "youtube" as const,
+            });
+          } catch {
+            // Skip failed resolves
           }
         }
 
-        // ── Step 7: Smart dedup, diversity, exploration ──
-        // Remove duplicate versions (remix/slowed/lofi etc)
-        let smartResult = deduplicateVersions(result);
-        // Enforce artist diversity (max 2 per artist)
-        smartResult = enforceArtistDiversity(smartResult, 2);
-        // Apply 70/30 exploration factor using history pool
-        const historyPool = getHistoryBasedTracks(primaryIdSet, 5);
-        smartResult = applyExplorationFactor(
-          smartResult,
-          historyPool,
-          Math.min(8, smartResult.length + 3),
-        );
-        // Cap at 8
-        smartResult = smartResult.slice(0, 8);
+        if (cancelled) return;
 
-        // Save to cache
-        cacheSet(ck, smartResult);
-
-        if (!cancelled) setRelatedTracks(smartResult);
+        cacheSet(ck, resolvedTracks);
+        setRelatedTracks(resolvedTracks);
       } catch (err) {
-        console.error("Related tracks fetch failed:", err);
+        console.error("Up Next fetch failed:", err);
         if (!cancelled) setRelatedTracks([]);
       } finally {
         if (!cancelled) setIsLoading(false);

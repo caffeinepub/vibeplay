@@ -1,73 +1,51 @@
-# VibePlay — Spotify + Last.fm Integration
+# VibePlay – Smart Up Next System
 
 ## Current State
-
-VibePlay is a mobile-first PWA music app using:
-- **YouTube API** (10 keys in rotation) for search, playback, and recommendations
-- **Motoko backend** for user auth (email/password), liked songs, playlists
-- **Smart recommendation engine** in `useRecommendationEngine.ts` using YouTube's `relatedToVideoId`, language/mood detection, behavior tracking
-- **Search** in `useYouTubeSearch.ts` with ranking, fuzzy search (Fuse.js), deduplication
-- **Constants**: `constants.ts` holds all YouTube keys and fetch helpers
-- **Caching**: `apiCache.ts` with 1-hour localStorage TTL
-- **UI**: React + TypeScript, dark theme, filter chip bar, bottom nav, player
+- `useRelatedTracks` hook fetches related songs using YouTube's `relatedToVideoId` endpoint as primary source, then falls back to title/artist search query
+- YouTube native related videos frequently return the same song in different versions (lofi, slowed, reverb, remix)
+- Deduplication (`versionDedup.ts`) and artist diversity logic exist but operate on the already-bad YouTube related data
+- `youtubeService.ts` has `searchYouTubeForTrack` that only fetches 3 results and takes the first match — no scoring
+- `spotifyService.ts` has `getSpotifyRecommendations` but it is NOT used in `useRelatedTracks` — only in the home recommendation feed
+- Spotify Client Secret is currently empty in constants.ts, which means Spotify calls fail silently
+- Last.fm `getLastFmSimilarTracks` exists but is also NOT connected to the Up Next system
 
 ## Requested Changes (Diff)
 
 ### Add
-- `src/frontend/src/services/spotifyService.ts` — Spotify Web API integration
-  - Client Credentials Flow token fetching (via backend proxy to keep client_secret hidden)
-  - `searchTracks(query)` → enriched track metadata (name, artist, album, cover image)
-  - `getRecommendations(seedArtists, seedTracks)` → Spotify recommendations
-  - Response caching using existing `apiCache.ts`
-- `src/frontend/src/services/lastfmService.ts` — Last.fm API integration
-  - `getTopTracks(limit)` → global trending tracks
-  - `getTopArtists(limit)` → trending artists
-  - `getTagTopTracks(tag)` → genre-based music (bollywood, punjabi, etc.)
-  - `getSimilarTracks(artist, track)` → similar song recommendations
-  - Response caching
-- `src/frontend/src/services/youtubeService.ts` — extracted YouTube service
-  - `searchYouTube(query)` → search with "official audio" preference
-  - `buildPlaybackQuery(songName, artist)` → formats query as "song + artist + official audio"
-  - Re-exports key rotation from `constants.ts`
-- Motoko backend: `getSpotifyToken()` public query — proxies Spotify Client Credentials OAuth call (HTTP outcall) and caches the token for 55 minutes
-- Motoko backend: `getLastFmTopTracks(limit)` and `getLastFmTopArtists(limit)` proxy endpoints (optional — Last.fm API is public, can be called from frontend directly)
-- New `src/frontend/src/hooks/useSmartSearch.ts` — combines Spotify search metadata with YouTube playback
-  - First fetches Spotify results for rich metadata (track name, artist, album art)
-  - Formats YouTube query as "trackName + artistName + official audio"
-  - Falls back to direct YouTube search if Spotify fails
-- New `src/frontend/src/hooks/useSpotifyRecommendations.ts` — hybrid recommendation hook
-  - Combines Spotify recommendations + Last.fm trending
-  - Deduplicates using existing `versionDedup.ts` utils
-- Updated `useRecommendationEngine.ts` — adds "Trending Now" section from Last.fm and "Similar Artists" section from Spotify
-- Updated `useYouTubeSearch.ts` → replaced by `useSmartSearch.ts` for Spotify-enriched results
-- Updated `SearchScreen.tsx` — uses smart search, shows album art and Spotify metadata where available
-- Updated `HomeScreen.tsx` — new sections: "Trending Now" (Last.fm) and "Similar Artists"
-- New `Track` type fields: `artist?`, `album?`, `albumArt?`, `source?: 'spotify' | 'lastfm' | 'youtube'`
-- Two new YouTube API keys added to rotation: `AIzaSyCF6vBJ_RcZN9YNuoOVa8a3DBSy6gXh_B8`, `AIzaSyD1ZBkKir687901Sbk8NLm9g71i4rUXo4c`
-- Audio quality section: "official audio" query preference, playback quality indicator (Low/Medium/High based on channel name heuristics)
+- `utils/youtubeMatchEngine.ts` — AI-based YouTube video matching engine with scoring:
+  - Title similarity score (40%)
+  - Official audio/video keyword boost (20%)
+  - Channel credibility score (15%)
+  - Duration matching against Spotify track duration (15%)
+  - View count quality signal (10%)
+  - Fetches 10–15 results per query, rejects blocked keywords, selects best match
+  - Caches matched video ID per song
+  - Returns videoId + title + thumbnail + confidence score
+- `utils/playHistory.ts` — Maintain last-10-played song history, deduplication by trackName+artist
+- Update `constants.ts` — Add Spotify Client Secret
 
 ### Modify
-- `constants.ts` — add 2 new YouTube API keys to the rotation (total: 12 keys)
-- `types.ts` — extend `Track` with optional `artist`, `album`, `albumArt`, `source` fields
-- `useYouTubeSearch.ts` → becomes a thin wrapper; smart search logic moved to `useSmartSearch.ts`
-- `useRecommendationEngine.ts` — integrate Last.fm trending into "Trending in Your Interest" section and add "Trending Now" and "Similar Artists" sections
-- `SearchScreen.tsx` — use smart search hook, display enriched metadata
-- `HomeScreen.tsx` — add "Trending Now" and "Similar Artists" home sections from combined Spotify+Last.fm data
-- Motoko backend `main.mo` — add Spotify token proxy endpoint
+- `hooks/useRelatedTracks.ts` — Complete rewrite:
+  - PRIMARY: Spotify `/v1/recommendations` with seed_tracks + seed_artists (15–20 tracks)
+  - FALLBACK: Last.fm `getLastFmSimilarTracks` if Spotify fails
+  - Apply strict anti-repetition against play history (last 10 songs)
+  - Apply artist diversity (max 2 per artist)
+  - For each Spotify/Last.fm track: run through `youtubeMatchEngine` to get best YouTube videoId
+  - Reject videos with blocked keywords in title (remix, lofi, slowed, reverb, cover, live, dj, karaoke, lyrics)
+  - Allow only "official audio" or "official video" preferentially; fallback to clean version
+  - Preload next 2 tracks after current resolves
+  - Build a queue of 10–15 unique, diverse related tracks
+- `services/youtubeService.ts` — Replace simple `searchYouTubeForTrack` (3 results, first-pick) with intelligent version that uses the scoring engine
+- `services/spotifyService.ts` — Update `getSpotifyRecommendations` to pass current track's Spotify ID as seed, extract artist ID from search results
 
 ### Remove
-- Nothing removed; all existing features preserved
+- Remove `relatedToVideoId` YouTube API call from the Up Next system entirely
+- Remove the YouTube-native related videos as any primary or fallback source for Up Next
 
 ## Implementation Plan
-
-1. **Add 2 new YouTube keys** to `constants.ts`
-2. **Extend `types.ts`** with `artist`, `album`, `albumArt`, `source` optional fields on `Track`
-3. **Create `spotifyService.ts`** — token fetch (calls `/spotify-token` backend endpoint), search, recommendations, caching
-4. **Create `lastfmService.ts`** — top tracks, top artists, tag tracks, similar tracks, caching
-5. **Create `youtubeService.ts`** — extracted YouTube search with "official audio" query formatting
-6. **Update Motoko backend** — add Spotify Client Credentials proxy (`getSpotifyToken` via HTTP outcall)
-7. **Create `useSmartSearch.ts`** — Spotify-first search with YouTube playback fallback
-8. **Update `useRecommendationEngine.ts`** — blend in Last.fm trending and Spotify similar artists
-9. **Update `SearchScreen.tsx`** — use `useSmartSearch`, show richer metadata
-10. **Update `HomeScreen.tsx`** — "Trending Now" from Last.fm, "Similar Artists" from Spotify
-11. **Validate and deploy**
+1. Add `SPOTIFY_CLIENT_SECRET` to `constants.ts`
+2. Create `utils/playHistory.ts` — read/write last-10 played, dedup by name+artist
+3. Create `utils/youtubeMatchEngine.ts` — multi-result fetch + scoring + rejection + cache
+4. Rewrite `hooks/useRelatedTracks.ts` — Spotify first → Last.fm fallback → resolve each track via match engine → diversity + dedup filters → return queue of 10–15
+5. Update `services/youtubeService.ts` `searchYouTubeForTrack` to use the scoring engine for higher-confidence matches
+6. Wire play history tracking into App.tsx when a track starts playing
