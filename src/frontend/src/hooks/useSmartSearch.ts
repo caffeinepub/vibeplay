@@ -1,12 +1,13 @@
 /**
- * useSmartSearch — Spotify-enriched search hook.
+ * useSmartSearch — Spotify-enriched search hook with official-only filtering.
  * Drop-in replacement for useYouTubeSearch with the same returned interface.
  *
  * Search flow:
  * 1. Try Spotify for rich metadata (album art, artist info)
- * 2. Run standard YouTube search in parallel
- * 3. Merge: Spotify tracks (with YouTube videoIds) come first
- * 4. Fall back gracefully to YouTube-only if Spotify is unavailable
+ * 2. Run standard YouTube search in parallel with official filters
+ * 3. Filter out Shorts (<55s), remixes, lofi, karaoke, covers
+ * 4. Merge: Spotify tracks (with YouTube videoIds) come first
+ * 5. Fall back gracefully to YouTube-only if Spotify is unavailable
  */
 import { useCallback, useState } from "react";
 import {
@@ -26,6 +27,10 @@ import { buildOfficialAudioQuery } from "../services/youtubeService";
 import type { Track } from "../types";
 import { cacheGet, cacheKey, cacheSet } from "../utils/apiCache";
 import { fuzzySearch } from "../utils/fuzzySearch";
+import {
+  applyOfficialFilter,
+  isOfficialChannel,
+} from "../utils/officialFilter";
 import { rankSearchResults } from "../utils/searchRanker";
 import { deduplicateVersions } from "../utils/versionDedup";
 
@@ -40,6 +45,15 @@ function parseDuration(iso: string): string {
   if (h > 0)
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function getDurationSeconds(iso: string): number {
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 999; // unknown, keep
+  const h = Number.parseInt(match[1] || "0");
+  const m = Number.parseInt(match[2] || "0");
+  const s = Number.parseInt(match[3] || "0");
+  return h * 3600 + m * 60 + s;
 }
 
 type RawVideoItem = {
@@ -64,6 +78,7 @@ function toTrack(item: RawVideoItem): Track {
     viewCount: item.statistics.viewCount,
     tags: item.snippet.tags,
     source: "youtube",
+    isOfficial: isOfficialChannel(item.snippet.channelTitle),
   };
 }
 
@@ -78,7 +93,11 @@ async function fetchVideoDetails(ids: string[]): Promise<RawVideoItem[]> {
   });
   if (!res.ok) throw new Error(await parseYouTubeError(res));
   const data = await res.json();
-  return data.items as RawVideoItem[];
+  // Filter out very short videos (YouTube Shorts < 55 seconds)
+  return (data.items as RawVideoItem[]).filter((item) => {
+    const dur = item.contentDetails?.duration ?? "";
+    return getDurationSeconds(dur) >= 55;
+  });
 }
 
 /**
@@ -95,6 +114,7 @@ async function resolveSpotifyVideoId(st: SpotifyTrack): Promise<string | null> {
       url.searchParams.set("type", "video");
       url.searchParams.set("videoCategoryId", "10");
       url.searchParams.set("maxResults", "3");
+      url.searchParams.set("safeSearch", "strict");
       url.searchParams.set("key", key);
       return url.toString();
     });
@@ -168,8 +188,8 @@ export function useSmartSearch() {
       return;
     }
 
-    // Check full cache first (smart_search key includes both Spotify + YouTube)
-    const ck = cacheKey("smart_search", query.trim().toLowerCase());
+    // Check full cache first
+    const ck = cacheKey("smart_search_v2", query.trim().toLowerCase());
     const cached = cacheGet<{
       tracks: Track[];
       hasSpotify: boolean;
@@ -197,12 +217,14 @@ export function useSmartSearch() {
             MAX_SEARCH_RESULTS.toString(),
           );
           searchUrl.searchParams.set("videoCategoryId", "10");
+          searchUrl.searchParams.set("safeSearch", "strict");
+          searchUrl.searchParams.set("relevanceLanguage", "hi");
           searchUrl.searchParams.set("key", key);
           return searchUrl.toString();
         }),
       ]);
 
-      // ─── Process Spotify results ───────────────────────────────────────────
+      // ─── Process Spotify results ───────────────────────────────────────────────────────
       const rawSpotifyTracks: SpotifyTrack[] =
         spotifyRaw.status === "fulfilled" ? spotifyRaw.value.slice(0, 5) : [];
 
@@ -212,12 +234,16 @@ export function useSmartSearch() {
         const videoId = await resolveSpotifyVideoId(st);
         if (videoId) {
           const track = spotifyTrackToTrack(st);
-          spotifyTracksWithYt.push({ ...track, id: videoId });
+          spotifyTracksWithYt.push({
+            ...track,
+            id: videoId,
+            isOfficial: isOfficialChannel(track.channelName),
+          });
         }
       }
       const hasSpotify = spotifyTracksWithYt.length > 0;
 
-      // ─── Process YouTube results ───────────────────────────────────────────
+      // ─── Process YouTube results ──────────────────────────────────────────────────
       let youtubeTracks: Track[] = [];
       let vibeTracks: Track[] = [];
       let hasVibe = false;
@@ -266,6 +292,7 @@ export function useSmartSearch() {
               vibeSearchUrl.searchParams.set("type", "video");
               vibeSearchUrl.searchParams.set("maxResults", "5");
               vibeSearchUrl.searchParams.set("videoCategoryId", "10");
+              vibeSearchUrl.searchParams.set("safeSearch", "strict");
               vibeSearchUrl.searchParams.set("key", key);
               return vibeSearchUrl.toString();
             });
@@ -297,7 +324,7 @@ export function useSmartSearch() {
         );
       }
 
-      // ─── Merge and rank ────────────────────────────────────────────────────
+      // ─── Merge and rank ──────────────────────────────────────────────────
       const allYoutubeTracks = [...youtubeTracks, ...vibeTracks];
       let finalResults: Track[];
 
@@ -312,6 +339,13 @@ export function useSmartSearch() {
       }
 
       finalResults = deduplicateVersions(finalResults);
+      // Apply official-only filter (removes remixes, lofi, karaoke, etc.)
+      finalResults = applyOfficialFilter(finalResults);
+      // Mark official channels
+      finalResults = finalResults.map((t) => ({
+        ...t,
+        isOfficial: t.isOfficial || isOfficialChannel(t.channelName),
+      }));
 
       // Add fuzzy results if too few
       let usedFuzzy = false;

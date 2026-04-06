@@ -4,6 +4,7 @@ import { useState } from "react";
 import { FilterChipBar } from "../components/FilterChipBar";
 import { InterestPicker } from "../components/InterestPicker";
 import { RecommendationFeed } from "../components/RecommendationFeed";
+import { TrendingPlaylists } from "../components/TrendingPlaylists";
 import { MOOD_CATEGORIES } from "../data/mockData";
 import type { RecommendationSection, TabName, Track } from "../types";
 
@@ -113,7 +114,7 @@ export function HomeScreen({
             <div>
               <div className="flex items-center gap-1.5 mb-1">
                 <img
-                  src="/assets/generated/vibeplay-logo-color.dim_512x512.png"
+                  src="/assets/generated/vibeplay-logo-transparent.dim_400x400.png"
                   alt=""
                   className="w-4 h-4 object-contain"
                 />
@@ -230,6 +231,9 @@ export function HomeScreen({
 
         {/* Filter Chip Bar — below greeting, above Continue Listening */}
         <FilterChipBar onFiltersChange={onFiltersChange} />
+
+        {/* 🔥 Trending Playlists */}
+        <TrendingPlaylists onPlay={onPlay} currentTrack={currentTrack} />
 
         {/* Continue Listening (native, non-recommendation section) */}
         {continueListening.length > 0 && (
@@ -424,7 +428,7 @@ export function HomeScreen({
         <footer className="px-4 py-6 border-t border-border mt-4">
           <div className="flex items-center gap-2 mb-2">
             <img
-              src="/assets/generated/vibeplay-logo-color.dim_512x512.png"
+              src="/assets/generated/vibeplay-logo-transparent.dim_400x400.png"
               alt="VibePlay"
               className="w-7 h-7 object-contain"
             />

@@ -3,6 +3,7 @@
  *
  * Flow:
  *  1. PRIMARY: Spotify /v1/recommendations (seed_tracks + seed_artists) → 15-20 tracks
+ *  1b. BLEND: YouTube related videos (relatedToVideoId) blended in alongside Spotify
  *  2. FALLBACK: Last.fm track.getsimilar if Spotify unavailable
  *  3. For each candidate track: resolve to a YouTube video via youtubeMatchEngine
  *     — strict blocked-keyword filtering, scored matching, official audio priority
@@ -16,6 +17,8 @@ import {
   SPOTIFY_AUTH_URL,
   SPOTIFY_CLIENT_ID,
   SPOTIFY_CLIENT_SECRET,
+  YOUTUBE_API_BASE,
+  fetchWithKeyFallback,
 } from "../constants";
 import { getLastFmSimilarTracks } from "../services/lastfmService";
 import type { Track } from "../types";
@@ -189,6 +192,25 @@ function isInHistory(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Blocked keywords for filtering
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BLOCKED_KEYWORDS = [
+  "remix",
+  "lofi",
+  "lo-fi",
+  "slowed",
+  "reverb",
+  "cover",
+  "live",
+  "dj",
+  "karaoke",
+  "lyrics",
+  "status",
+  "mashup",
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main hook
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -213,7 +235,7 @@ export function useRelatedTracks(track: Track | null) {
       setIsLoading(true);
 
       // Check final output cache first
-      const ck = cacheKey("upnext_v3", track.id);
+      const ck = cacheKey("upnext_v4", track.id);
       const cached = cacheGet<Track[]>(ck);
       if (cached) {
         if (!cancelled) {
@@ -270,6 +292,48 @@ export function useRelatedTracks(track: Track | null) {
           }
         }
 
+        // ── Step 1b: YouTube related videos (blended with Spotify) ──────────────
+        // Fetch YouTube related videos for the current track
+        try {
+          const ytRelatedUrl = (key: string) => {
+            const u = new URL(`${YOUTUBE_API_BASE}/search`);
+            u.searchParams.set("part", "snippet");
+            u.searchParams.set("relatedToVideoId", track.id);
+            u.searchParams.set("type", "video");
+            u.searchParams.set("videoCategoryId", "10"); // Music category
+            u.searchParams.set("maxResults", "15");
+            u.searchParams.set("key", key);
+            return u.toString();
+          };
+          const ytRes = await fetchWithKeyFallback(ytRelatedUrl);
+          if (ytRes.ok) {
+            const ytData = await ytRes.json();
+            for (const item of ytData.items ?? []) {
+              const ytTitle = item.snippet?.title ?? "";
+              const ytChannel = item.snippet?.channelTitle ?? "";
+              const ytThumb =
+                item.snippet?.thumbnails?.medium?.url ??
+                item.snippet?.thumbnails?.default?.url ??
+                "";
+              // Skip if already found via Spotify (by normalizeKey dedup)
+              const alreadyIn = candidates.some(
+                (c) =>
+                  normalizeKey(c.name, c.artist) ===
+                  normalizeKey(ytTitle, ytChannel),
+              );
+              if (!alreadyIn) {
+                candidates.push({
+                  name: ytTitle,
+                  artist: ytChannel,
+                  thumbnail: ytThumb,
+                });
+              }
+            }
+          }
+        } catch {
+          // YouTube related is optional
+        }
+
         // ── Step 2: Last.fm fallback ──────────────────────────────────────────
         if (candidates.length < 8) {
           try {
@@ -285,7 +349,7 @@ export function useRelatedTracks(track: Track | null) {
                 t.image?.find((i) => i.size === "large")?.["#text"] ??
                 t.image?.[0]?.["#text"] ??
                 "";
-              // Avoid pushing candidates already found via Spotify
+              // Avoid pushing candidates already found via Spotify or YouTube
               const alreadyIn = candidates.some(
                 (c) =>
                   normalizeKey(c.name, c.artist) ===
@@ -308,6 +372,12 @@ export function useRelatedTracks(track: Track | null) {
           if (!cancelled) setRelatedTracks([]);
           return;
         }
+
+        // ── Pre-filter candidates with blocked keywords before YouTube resolution ─
+        candidates = candidates.filter((c) => {
+          const lower = c.name.toLowerCase();
+          return !BLOCKED_KEYWORDS.some((kw) => lower.includes(kw));
+        });
 
         // ── Step 3: Anti-repetition filter (history + current track) ─────────
         candidates = candidates.filter((c) => {
@@ -351,7 +421,7 @@ export function useRelatedTracks(track: Track | null) {
               candidate.durationMs,
             );
 
-            if (!match || match.confidence < 0.15) continue;
+            if (!match || match.confidence < 0.05) continue;
 
             // Skip if we've already queued this YT video
             if (seenYtIds.has(match.videoId)) continue;
@@ -375,6 +445,52 @@ export function useRelatedTracks(track: Track | null) {
           }
         }
 
+        // ── Fallback: direct YouTube search if too few tracks resolved ──────
+        if (resolvedTracks.length < 3 && !cancelled) {
+          try {
+            const fallbackQuery = `${currentTitle} ${currentArtist} official audio`;
+            const fallbackRes = await fetchWithKeyFallback((key) => {
+              const u = new URL(`${YOUTUBE_API_BASE}/search`);
+              u.searchParams.set("part", "snippet");
+              u.searchParams.set("q", fallbackQuery);
+              u.searchParams.set("type", "video");
+              u.searchParams.set("videoCategoryId", "10");
+              u.searchParams.set("maxResults", "10");
+              u.searchParams.set("safeSearch", "strict");
+              u.searchParams.set("key", key);
+              return u.toString();
+            });
+            if (fallbackRes.ok) {
+              const fallbackData = await fallbackRes.json();
+              for (const item of fallbackData.items ?? []) {
+                if (resolvedTracks.length >= MAX_QUEUE) break;
+                const ytId = item.id?.videoId as string | undefined;
+                if (!ytId || seenYtIds.has(ytId) || historyIds.has(ytId))
+                  continue;
+                const ytTitle: string = item.snippet?.title ?? "";
+                const ytChannel: string = item.snippet?.channelTitle ?? "";
+                const ytThumb: string =
+                  item.snippet?.thumbnails?.medium?.url ?? "";
+                // Apply blocked keywords filter
+                const isBlocked = BLOCKED_KEYWORDS.some((kw) =>
+                  ytTitle.toLowerCase().includes(kw),
+                );
+                if (isBlocked) continue;
+                seenYtIds.add(ytId);
+                resolvedTracks.push({
+                  id: ytId,
+                  title: ytTitle,
+                  channelName: ytChannel,
+                  artist: ytChannel,
+                  thumbnail: ytThumb,
+                  source: "youtube" as const,
+                });
+              }
+            }
+          } catch {
+            // Fallback failure is non-fatal
+          }
+        }
         if (cancelled) return;
 
         cacheSet(ck, resolvedTracks);

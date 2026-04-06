@@ -269,6 +269,7 @@ export default function App() {
   const likedTracks = userData.likedVideoIds
     .map(
       (id) =>
+        userData.getCachedTrack(id) ||
         favorites.find((f) => f.id === id) ||
         continueListening.find((t) => t.id === id) ||
         (currentTrack?.id === id ? currentTrack : undefined),

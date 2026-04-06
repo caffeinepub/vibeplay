@@ -14,6 +14,8 @@ export const YOUTUBE_API_KEYS = [
   "AIzaSyDMoPFf0HXjJqz7tep6RfdDk2VBmSExzKg",
   "AIzaSyCF6vBJ_RcZN9YNuoOVa8a3DBSy6gXh_B8",
   "AIzaSyD1ZBkKir687901Sbk8NLm9g71i4rUXo4c",
+  "AIzaSyAEH5Y74v7BPyxeoQm5lJDTFipJq7-wYC0",
+  "AIzaSyD5ZfbVi42lPN84pGlCNQyoD7vYHa1LqC8",
 ];
 
 // Primary key (kept for backward compat)
@@ -21,14 +23,13 @@ export const YOUTUBE_API_KEY = YOUTUBE_API_KEYS[0];
 
 export const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
-// ─── Spotify API ──────────────────────────────────────────────────────────────
+// ─── Spotify API ──────────────────────────────────────────────────────
 export const SPOTIFY_CLIENT_ID = "eb77177675b443d8a8f660bc6ae19d00";
-// NOTE: Fill in your Spotify Client Secret from https://developer.spotify.com/dashboard
-export const SPOTIFY_CLIENT_SECRET = "";
+export const SPOTIFY_CLIENT_SECRET = "6d0edab9807f4aa59c89d6a478cec7d1";
 export const SPOTIFY_API_BASE = "https://api.spotify.com/v1";
 export const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/api/token";
 
-// ─── Last.fm API ──────────────────────────────────────────────────────────────
+// ─── Last.fm API ─────────────────────────────────────────────────────
 export const LASTFM_API_KEY = "162457c7d4c0b5761df3b540f31468df";
 export const LASTFM_API_BASE = "https://ws.audioscrobbler.com/2.0/";
 
@@ -90,7 +91,7 @@ export async function parseYouTubeError(res: Response): Promise<string> {
 /**
  * Tries to fetch a URL with automatic API key fallback.
  * If the response indicates quota exceeded or forbidden, rotates to the next key and retries.
- * Keys are pre-shuffled for even load distribution across all 12 keys.
+ * Keys are pre-shuffled for even load distribution across all 14 keys.
  */
 export async function fetchWithKeyFallback(
   buildUrl: (key: string) => string,

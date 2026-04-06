@@ -171,7 +171,7 @@ export function PlayerScreen({
             className="w-full h-full object-cover"
             onError={(e) => {
               (e.target as HTMLImageElement).src =
-                "/assets/generated/vibeplay-logo-color.dim_512x512.png";
+                "/assets/generated/vibeplay-logo-transparent.dim_400x400.png";
             }}
           />
         </motion.div>

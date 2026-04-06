@@ -1,51 +1,50 @@
-# VibePlay – Smart Up Next System
+# VibePlay — Search & Home Update
 
 ## Current State
-- `useRelatedTracks` hook fetches related songs using YouTube's `relatedToVideoId` endpoint as primary source, then falls back to title/artist search query
-- YouTube native related videos frequently return the same song in different versions (lofi, slowed, reverb, remix)
-- Deduplication (`versionDedup.ts`) and artist diversity logic exist but operate on the already-bad YouTube related data
-- `youtubeService.ts` has `searchYouTubeForTrack` that only fetches 3 results and takes the first match — no scoring
-- `spotifyService.ts` has `getSpotifyRecommendations` but it is NOT used in `useRelatedTracks` — only in the home recommendation feed
-- Spotify Client Secret is currently empty in constants.ts, which means Spotify calls fail silently
-- Last.fm `getLastFmSimilarTracks` exists but is also NOT connected to the Up Next system
+- Search uses `useSmartSearch` (Spotify + YouTube parallel), `deduplicateVersions`, `rankSearchResults`
+- Results include ALL YouTube videos including Shorts, remixes, lofi, etc.
+- YouTube search has no `videoDuration` or `safeSearch` filters
+- Keyword filtering only exists in recommendations (not search)
+- Search tabs: All, Songs, Artists, Trending (no Songs/Videos split)
+- No "Official" badge on results
+- MOOD_CATEGORIES in mockData includes: chill, sad, gym, focus — gym/chill/focus must be removed
+- Home has no "Trending Playlists" section (last build may not have persisted it)
+- Up Next (`useRelatedTracks`) uses Spotify + YouTube related + Last.fm; may have caching issues
+- YouTube API has 12 keys; 2 new keys to add
+- viewport `initial-scale=1.0` doesn't prevent zoom on double-tap
 
 ## Requested Changes (Diff)
 
 ### Add
-- `utils/youtubeMatchEngine.ts` — AI-based YouTube video matching engine with scoring:
-  - Title similarity score (40%)
-  - Official audio/video keyword boost (20%)
-  - Channel credibility score (15%)
-  - Duration matching against Spotify track duration (15%)
-  - View count quality signal (10%)
-  - Fetches 10–15 results per query, rejects blocked keywords, selects best match
-  - Caches matched video ID per song
-  - Returns videoId + title + thumbnail + confidence score
-- `utils/playHistory.ts` — Maintain last-10-played song history, deduplication by trackName+artist
-- Update `constants.ts` — Add Spotify Client Secret
+- Official-only filter in `useSmartSearch`: `videoDuration=medium` (60s–20min), `safeSearch=strict`, `relevanceLanguage=hi`
+- Title keyword blocklist applied to YouTube search results (remix, lofi, slowed, sped up, karaoke, cover, version, edit, shorts, reels, fan made)
+- "Official" badge on results from verified/official channels (T-Series, Sony Music, Zee Music, Saregama, etc.)
+- Songs/Videos tab split in `SearchScreen` (Songs = audio-focused, Videos = visual music videos)
+- `TrendingPlaylists` component with 4 Indian-focus playlists (Love Songs, Party Songs, Heartbreak, Old School Romance)
+- `TrendingPlaylists` section at top of HomeScreen replacing current mood section that has gym/chill/focus
+- 2 new YouTube API keys: `AIzaSyAEH5Y74v7BPyxeoQm5lJDTFipJq7-wYC0` and `AIzaSyD5ZfbVi42lPN84pGlCNQyoD7vYHa1LqC8`
+- `user-scalable=no, maximum-scale=1` in viewport meta to prevent pinch/zoom on all pages
 
 ### Modify
-- `hooks/useRelatedTracks.ts` — Complete rewrite:
-  - PRIMARY: Spotify `/v1/recommendations` with seed_tracks + seed_artists (15–20 tracks)
-  - FALLBACK: Last.fm `getLastFmSimilarTracks` if Spotify fails
-  - Apply strict anti-repetition against play history (last 10 songs)
-  - Apply artist diversity (max 2 per artist)
-  - For each Spotify/Last.fm track: run through `youtubeMatchEngine` to get best YouTube videoId
-  - Reject videos with blocked keywords in title (remix, lofi, slowed, reverb, cover, live, dj, karaoke, lyrics)
-  - Allow only "official audio" or "official video" preferentially; fallback to clean version
-  - Preload next 2 tracks after current resolves
-  - Build a queue of 10–15 unique, diverse related tracks
-- `services/youtubeService.ts` — Replace simple `searchYouTubeForTrack` (3 results, first-pick) with intelligent version that uses the scoring engine
-- `services/spotifyService.ts` — Update `getSpotifyRecommendations` to pass current track's Spotify ID as seed, extract artist ID from search results
+- `constants.ts`: add 2 new API keys to `YOUTUBE_API_KEYS` array (total 14)
+- `useSmartSearch.ts`: add `videoDuration`, `safeSearch`, `relevanceLanguage` params; post-filter results by blocked keywords; mark official channel results
+- `SearchScreen.tsx`: add "Songs" and "Videos" tabs; add Official badge rendering
+- `mockData.ts`: remove `gym`, `chill`, `focus` from `MOOD_CATEGORIES`; keep only `sad` (or replace with Indian-focus moods)
+- `HomeScreen.tsx`: add `TrendingPlaylists` section above recommendation feed
+- `useRelatedTracks.ts`: fix Up Next — ensure track candidates resolve correctly and queue is populated
+- `index.html`: add `user-scalable=no, maximum-scale=1` to viewport meta
 
 ### Remove
-- Remove `relatedToVideoId` YouTube API call from the Up Next system entirely
-- Remove the YouTube-native related videos as any primary or fallback source for Up Next
+- `gym`, `chill`, `focus` mood categories from home screen
+- Non-Indian mood filters that don't align with Indian music focus
 
 ## Implementation Plan
-1. Add `SPOTIFY_CLIENT_SECRET` to `constants.ts`
-2. Create `utils/playHistory.ts` — read/write last-10 played, dedup by name+artist
-3. Create `utils/youtubeMatchEngine.ts` — multi-result fetch + scoring + rejection + cache
-4. Rewrite `hooks/useRelatedTracks.ts` — Spotify first → Last.fm fallback → resolve each track via match engine → diversity + dedup filters → return queue of 10–15
-5. Update `services/youtubeService.ts` `searchYouTubeForTrack` to use the scoring engine for higher-confidence matches
-6. Wire play history tracking into App.tsx when a track starts playing
+1. Update `constants.ts` — add 2 new API keys
+2. Update `index.html` — fix viewport meta for no-zoom
+3. Update `useSmartSearch.ts` — add official filters, keyword blocking, official channel detection
+4. Create `utils/officialFilter.ts` — helper functions for keyword blocking + official channel detection
+5. Update `SearchScreen.tsx` — add Official badge, Songs/Videos tab
+6. Update `mockData.ts` — remove gym/chill/focus, add Indian-focus mood: Bollywood, Romantic
+7. Create `components/TrendingPlaylists.tsx` — 4 Indian playlists with dynamic fetch, skeleton, Play All
+8. Update `HomeScreen.tsx` — add TrendingPlaylists above RecommendationFeed
+9. Fix `useRelatedTracks.ts` — ensure Up Next populates by improving reliability of Spotify/YouTube candidate resolution

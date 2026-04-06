@@ -11,6 +11,8 @@ export interface Track {
   album?: string;
   albumArt?: string;
   source?: "spotify" | "lastfm" | "youtube";
+  // Official channel flag
+  isOfficial?: boolean;
 }
 
 export interface Playlist {
@@ -58,27 +60,9 @@ export interface YouTubeSearchResult {
   snippet: {
     title: string;
     channelTitle: string;
-    thumbnails: { medium: { url: string }; high: { url: string } };
-    publishedAt: string;
+    thumbnails: { medium: { url: string } };
+    tags?: string[];
   };
-}
-
-export interface BehaviorEvent {
-  type: "play" | "skip" | "like" | "unlike" | "search";
-  videoId?: string;
-  query?: string;
-  tags?: string[];
-  timestamp: number;
-  title?: string;
-  channelName?: string;
-}
-
-export interface UserPreferences {
-  tagScores: Record<string, number>;
-  boostedIds: string[];
-  downrankedIds: string[];
-  interests: string[];
-  totalPlays: number;
 }
 
 export interface RecommendationSection {
@@ -87,4 +71,22 @@ export interface RecommendationSection {
   subtitle?: string;
   tracks: Track[];
   isLoading: boolean;
+}
+
+export interface BehaviorEvent {
+  type: "play" | "skip" | "like" | "unlike" | "search";
+  videoId?: string;
+  title?: string;
+  channelName?: string;
+  tags?: string[];
+  query?: string;
+  timestamp: number;
+}
+
+export interface UserPreferences {
+  tagScores: Record<string, number>;
+  boostedIds: string[];
+  downrankedIds: string[];
+  interests: string[];
+  totalPlays: number;
 }

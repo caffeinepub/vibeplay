@@ -1,6 +1,15 @@
-import { Heart, ListMusic, Lock, Music2, Plus, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  Heart,
+  ListMusic,
+  Lock,
+  Music2,
+  Play,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TrackItem } from "../components/TrackItem";
 import type { BackendPlaylistWithTracks } from "../hooks/useUserData";
 import type { Playlist, Track } from "../types";
@@ -49,6 +58,11 @@ export function LibraryScreen({
   const [activeTab, setActiveTab] = useState<LibraryTab>("favorites");
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [selectedPlaylist, setSelectedPlaylist] = useState<{
+    id: string;
+    name: string;
+    tracks: Track[];
+  } | null>(null);
 
   // Use backend data when logged in, localStorage when guest
   const displayFavorites = isLoggedIn && likedTracks ? likedTracks : favorites;
@@ -61,6 +75,13 @@ export function LibraryScreen({
           createdAt: 0,
         }))
       : playlists;
+
+  // Keep selectedPlaylist in sync when tracks are added/removed
+  useEffect(() => {
+    if (!selectedPlaylist) return;
+    const updated = displayPlaylists.find((p) => p.id === selectedPlaylist.id);
+    if (updated) setSelectedPlaylist(updated);
+  }, [displayPlaylists, selectedPlaylist]);
 
   function handleCreatePlaylist() {
     if (!newPlaylistName.trim()) return;
@@ -80,6 +101,10 @@ export function LibraryScreen({
     } else {
       onDeletePlaylist(id);
     }
+    // If we deleted the open playlist, go back to list
+    if (selectedPlaylist?.id === id) {
+      setSelectedPlaylist(null);
+    }
   }
 
   function handleAddToPlaylist(playlistId: string, track: Track) {
@@ -89,6 +114,90 @@ export function LibraryScreen({
     } else if (onAddToPlaylist) {
       onAddToPlaylist(playlistId, track);
     }
+  }
+
+  // ── Playlist detail view ──────────────────────────────────────────────────
+  if (selectedPlaylist !== null) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="px-4 pt-5 pb-3 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              data-ocid="library.playlist.back.button"
+              onClick={() => setSelectedPlaylist(null)}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-muted/50 hover:bg-muted touch-manipulation transition-colors"
+              aria-label="Back to playlists"
+            >
+              <ChevronLeft className="w-5 h-5 text-foreground" />
+            </button>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-xl font-bold text-foreground truncate">
+                {selectedPlaylist.name}
+              </h1>
+              <p className="text-xs text-muted-foreground">
+                {selectedPlaylist.tracks.length} track
+                {selectedPlaylist.tracks.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+          </div>
+
+          {/* Play All button */}
+          {selectedPlaylist.tracks.length > 0 && (
+            <button
+              type="button"
+              data-ocid="library.playlist.play_all.button"
+              onClick={() =>
+                onPlay(selectedPlaylist.tracks[0], selectedPlaylist.tracks)
+              }
+              className="mt-4 flex items-center gap-2 px-5 py-2.5 rounded-full bg-vibe-green text-black text-sm font-semibold touch-manipulation hover:bg-vibe-green/90 transition-colors"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              Play All
+            </button>
+          )}
+        </div>
+
+        {/* Track list */}
+        <div className="flex-1 overflow-y-auto scrollbar-hide">
+          {selectedPlaylist.tracks.length === 0 ? (
+            <div
+              data-ocid="library.playlist.tracks.empty_state"
+              className="flex flex-col items-center justify-center gap-3 py-20"
+            >
+              <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center">
+                <Music2 className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-foreground">
+                No songs yet
+              </p>
+              <p className="text-xs text-muted-foreground text-center">
+                Add songs from Search or Favorites
+              </p>
+            </div>
+          ) : (
+            <div className="px-2 pb-4 space-y-1">
+              {selectedPlaylist.tracks.map((track, i) => (
+                <TrackItem
+                  key={track.id}
+                  track={track}
+                  index={i + 1}
+                  isPlaying={currentTrack?.id === track.id}
+                  isFavorite={isLoggedIn ? true : isFavorite(track.id)}
+                  onPlay={(t) => onPlay(t, selectedPlaylist.tracks)}
+                  onToggleFavorite={onToggleFavorite}
+                  playlists={displayPlaylists}
+                  onAddToPlaylist={handleAddToPlaylist}
+                  isLoggedIn={isLoggedIn}
+                  onShowLogin={onShowLogin}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -260,7 +369,7 @@ export function LibraryScreen({
                     No favorites yet
                   </p>
                   <p className="text-xs text-muted-foreground text-center">
-                    Tap the \u2665 on any song to save it here
+                    Tap the ♥ on any song to save it here
                   </p>
                 </div>
               ) : (
@@ -341,7 +450,8 @@ export function LibraryScreen({
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.05 }}
-                      className="flex items-center gap-3 p-3 rounded-2xl bg-muted/30 border border-border/50"
+                      onClick={() => setSelectedPlaylist(playlist)}
+                      className="flex items-center gap-3 p-3 rounded-2xl bg-muted/30 border border-border/50 cursor-pointer hover:bg-muted/50 active:scale-[0.98] touch-manipulation transition-all"
                     >
                       <div className="w-12 h-12 rounded-xl bg-vibe-green/20 flex items-center justify-center flex-shrink-0">
                         <ListMusic className="w-6 h-6 text-vibe-green" />
@@ -357,7 +467,10 @@ export function LibraryScreen({
                       <button
                         type="button"
                         data-ocid={`library.playlist.delete_button.${i + 1}`}
-                        onClick={() => handleDeletePlaylist(playlist.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePlaylist(playlist.id);
+                        }}
                         className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-destructive/20 touch-manipulation transition-colors"
                       >
                         <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />

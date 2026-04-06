@@ -16,6 +16,7 @@ import { TrackItem } from "../components/TrackItem";
 import { useSmartSearch } from "../hooks/useSmartSearch";
 import type { Playlist, Track } from "../types";
 import { buildTrackLabel } from "../utils/detectTrackMeta";
+import { isOfficialChannel } from "../utils/officialFilter";
 
 interface SearchScreenProps {
   initialQuery?: string;
@@ -108,6 +109,15 @@ function SpotifyBadge() {
   );
 }
 
+/** Official channel badge shown on verified/label content */
+function OfficialBadge() {
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-emerald-400 bg-emerald-400/10 border border-emerald-400/25 px-1.5 py-0.5 rounded-full leading-none">
+      ✓ Official
+    </span>
+  );
+}
+
 export function SearchScreen({
   initialQuery = "",
   currentTrack,
@@ -170,7 +180,7 @@ export function SearchScreen({
 
   // Active section tab state
   const [activeTab, setActiveTab] = useState<
-    "all" | "songs" | "artists" | "trending"
+    "all" | "songs" | "videos" | "artists" | "trending"
   >("all");
 
   // Reset tab when new results arrive
@@ -193,6 +203,13 @@ export function SearchScreen({
             <SpotifyBadge />
           </div>
         )}
+        {/* Official badge overlay */}
+        {(track.isOfficial || isOfficialChannel(track.channelName)) &&
+          track.source !== "spotify" && (
+            <div className="absolute left-14 bottom-1.5 z-10">
+              <OfficialBadge />
+            </div>
+          )}
         {/* Album subtitle under channel name — rendered as overlay info */}
         {track.album && (
           <div className="absolute left-14 top-1 z-10 max-w-[120px]">
@@ -293,6 +310,7 @@ export function SearchScreen({
               [
                 { key: "all", label: "All" },
                 { key: "songs", label: "Songs" },
+                { key: "videos", label: "🎬 Videos" },
                 { key: "artists", label: "Artists" },
                 ...(trendingTracks.length > 0
                   ? [{ key: "trending", label: "Trending" }]
@@ -519,6 +537,45 @@ export function SearchScreen({
                       return renderTrackRow(track, idx, results);
                     })}
                   </div>
+                </>
+              )}
+
+              {/* ── VIDEOS TAB ── */}
+              {activeTab === "videos" && (
+                <>
+                  <div className="px-4 pt-1">
+                    <p className="text-xs text-muted-foreground/70">
+                      Official music videos
+                    </p>
+                  </div>
+                  {(() => {
+                    const videoResults = results.filter(
+                      (t) =>
+                        t.isOfficial ||
+                        isOfficialChannel(t.channelName) ||
+                        t.title.toLowerCase().includes("official video") ||
+                        t.title.toLowerCase().includes("official music video"),
+                    );
+                    if (videoResults.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
+                          <p className="text-sm">No official videos found</p>
+                          <p className="text-xs">
+                            Try searching for a popular song
+                          </p>
+                        </div>
+                      );
+                    }
+                    let vIdx = 0;
+                    return (
+                      <div className="space-y-1">
+                        {videoResults.map((track) => {
+                          vIdx += 1;
+                          return renderTrackRow(track, vIdx, videoResults);
+                        })}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
 

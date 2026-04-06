@@ -110,7 +110,7 @@ export function LoginScreen({
             }}
           />
           <img
-            src="/assets/generated/vibeplay-logo-color.dim_512x512.png"
+            src="/assets/generated/vibeplay-logo-transparent.dim_400x400.png"
             alt="VibePlay"
             className="relative w-16 h-16 object-contain"
           />

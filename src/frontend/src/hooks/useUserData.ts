@@ -66,6 +66,10 @@ export function useUserData(sessionToken: string | null, isLoggedIn: boolean) {
     trackCache.current.set(track.id, track);
   }, []);
 
+  const getCachedTrack = useCallback((videoId: string): Track | undefined => {
+    return trackCache.current.get(videoId);
+  }, []);
+
   const isLiked = useCallback(
     (videoId: string) => likedVideoIds.includes(videoId),
     [likedVideoIds],
@@ -199,5 +203,6 @@ export function useUserData(sessionToken: string | null, isLoggedIn: boolean) {
     removeTrackFromPlaylist,
     refresh,
     cacheTrack,
+    getCachedTrack,
   };
 }
