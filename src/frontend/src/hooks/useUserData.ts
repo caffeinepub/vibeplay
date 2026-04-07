@@ -278,9 +278,11 @@ export function useUserData(sessionToken: string | null, isLoggedIn: boolean) {
           { id: newId, name, videoIds: [], tracks: [] },
           ...prev,
         ]);
+        // Re-sync with backend to confirm the playlist was saved
+        await refresh();
       }
     },
-    [isLoggedIn, sessionToken, getBackend],
+    [isLoggedIn, sessionToken, getBackend, refresh],
   );
 
   const deletePlaylist = useCallback(
@@ -390,12 +392,19 @@ export function useUserData(sessionToken: string | null, isLoggedIn: boolean) {
       for (const track of tracks) {
         try {
           await backend.addSongToPlaylist(sessionToken, newId, track.id);
-        } catch {
-          // Best-effort; continue with remaining tracks
+        } catch (err) {
+          console.error(
+            "[useUserData] addSongToPlaylist failed for:",
+            track.id,
+            err,
+          );
         }
       }
+
+      // 5. Re-sync state from backend so persisted tracks are reflected correctly
+      await refresh();
     },
-    [isLoggedIn, sessionToken, getBackend],
+    [isLoggedIn, sessionToken, getBackend, refresh],
   );
 
   return {

@@ -310,8 +310,8 @@ export function PlayerScreen({
       </div>
 
       {/* Up Next Section */}
-      <div className="px-4 pb-28 flex-shrink-0">
-        <div className="flex items-center gap-2 mb-3">
+      <div className="px-4 pb-28 flex flex-col" style={{ minHeight: 180 }}>
+        <div className="flex items-center gap-2 mb-3 flex-shrink-0">
           <ListMusic
             className="w-4 h-4"
             style={{ color: "oklch(0.75 0.17 200)" }}
@@ -327,33 +327,35 @@ export function PlayerScreen({
         </div>
 
         <div data-ocid="player.upnext.list" className="flex flex-col gap-1">
-          {isLoadingRelated ? (
-            <>
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  data-ocid="player.upnext.loading_state"
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-                >
-                  <Skeleton className="w-11 h-11 rounded-lg flex-shrink-0" />
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <Skeleton className="h-3.5 w-3/4 rounded" />
-                    <Skeleton className="h-3 w-1/2 rounded" />
+          {isLoadingRelated || relatedTracks.length === 0 ? (
+            isLoadingRelated ? (
+              <>
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    data-ocid="player.upnext.loading_state"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                  >
+                    <Skeleton className="w-11 h-11 rounded-lg flex-shrink-0" />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <Skeleton className="h-3.5 w-3/4 rounded" />
+                      <Skeleton className="h-3 w-1/2 rounded" />
+                    </div>
+                    <Skeleton className="w-8 h-3 rounded flex-shrink-0" />
                   </div>
-                  <Skeleton className="w-8 h-3 rounded flex-shrink-0" />
-                </div>
-              ))}
-            </>
-          ) : relatedTracks.length === 0 ? (
-            <div
-              data-ocid="player.upnext.empty_state"
-              className="flex flex-col items-center gap-2 py-6"
-            >
-              <ListMusic className="w-8 h-8 text-muted-foreground/40" />
-              <p className="text-xs text-muted-foreground">
-                No recommendations yet
-              </p>
-            </div>
+                ))}
+              </>
+            ) : (
+              <div
+                data-ocid="player.upnext.empty_state"
+                className="flex flex-col items-center gap-2 py-6"
+              >
+                <ListMusic className="w-8 h-8 text-muted-foreground/40" />
+                <p className="text-xs text-muted-foreground">
+                  No recommendations yet
+                </p>
+              </div>
+            )
           ) : (
             relatedTracks.map((relTrack, idx) => (
               <button

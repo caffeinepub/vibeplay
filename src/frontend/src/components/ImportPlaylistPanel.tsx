@@ -48,8 +48,26 @@ export function ImportPlaylistPanel({
   const [progress, setProgress] = useState({ loaded: 0, total: 0 });
   const [playlist, setPlaylist] = useState<ImportedPlaylist | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [urlValidationMsg, setUrlValidationMsg] = useState("");
   const [saved, setSaved] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /** Real-time validation triggered on blur — before the user even hits Import */
+  const handleUrlBlur = useCallback(() => {
+    const trimmed = url.trim();
+    if (!trimmed) {
+      setUrlValidationMsg("");
+      return;
+    }
+    const platform = detectPlatform(trimmed);
+    if (platform === "unknown") {
+      setUrlValidationMsg(
+        "Could not detect platform — paste a YouTube or Spotify playlist link.",
+      );
+    } else {
+      setUrlValidationMsg("");
+    }
+  }, [url]);
 
   const handleProgress = useCallback((loaded: number, total: number) => {
     setProgress({ loaded, total });
@@ -115,6 +133,7 @@ export function ImportPlaylistPanel({
     setUrl("");
     setPlaylist(null);
     setErrorMsg("");
+    setUrlValidationMsg("");
     setSaved(false);
     setProgress({ loaded: 0, total: 0 });
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -221,15 +240,17 @@ export function ImportPlaylistPanel({
                       onChange={(e) => {
                         setUrl(e.target.value);
                         if (step === "error") setStep("input");
+                        if (urlValidationMsg) setUrlValidationMsg("");
                       }}
+                      onBlur={handleUrlBlur}
                       onKeyDown={(e) => e.key === "Enter" && handleImport()}
                       placeholder="Paste YouTube or Spotify playlist link…"
-                      className="flex-1 bg-muted/60 border border-border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-vibe-green/50 transition-colors"
+                      className={`flex-1 bg-muted/60 border rounded-xl px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none transition-colors ${urlValidationMsg ? "border-destructive/60 focus:border-destructive" : "border-border focus:border-vibe-green/50"}`}
                     />
                     <Button
                       data-ocid="import.import.button"
                       onClick={handleImport}
-                      disabled={!url.trim()}
+                      disabled={!url.trim() || !!urlValidationMsg}
                       size="sm"
                       className="px-4 rounded-xl flex-shrink-0 touch-manipulation"
                       style={{
@@ -242,6 +263,18 @@ export function ImportPlaylistPanel({
                       Import
                     </Button>
                   </div>
+
+                  {/* Inline URL validation error (shows on blur, before submit) */}
+                  {urlValidationMsg && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-xs text-destructive flex items-center gap-1.5"
+                    >
+                      <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                      {urlValidationMsg}
+                    </motion.p>
+                  )}
                 </div>
 
                 {/* Error message */}

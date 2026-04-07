@@ -252,10 +252,16 @@ export function useRelatedTracks(track: Track | null) {
     const trackId = track?.id ?? null;
     if (!track || !trackId) {
       setRelatedTracks([]);
+      setIsLoading(false);
       return;
     }
-    if (trackIdRef.current === trackId) return;
-    trackIdRef.current = trackId;
+    // Always trigger a fresh fetch when track changes — including replayed tracks.
+    // We compare by both id and title to catch cases where the same video is
+    // reloaded after a restart (same id, but user explicitly triggered a new play).
+    const newKey = `${trackId}:${track.title}`;
+    if (trackIdRef.current === newKey) return;
+    trackIdRef.current = newKey;
+    console.log("[useRelatedTracks] fetching for:", track.title);
 
     let cancelled = false;
 

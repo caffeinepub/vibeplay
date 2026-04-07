@@ -51,19 +51,37 @@ const BLOCKED_IMPORT_KEYWORDS = [
 ];
 
 /**
+ * Normalize a pasted URL: trim whitespace and ensure it starts with https://
+ * so URL parser can always handle it correctly.
+ */
+function normalizeUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^spotify:/i.test(trimmed)) return trimmed; // keep spotify: URIs as-is
+  return `https://${trimmed}`;
+}
+
+/**
  * Detect which platform a URL belongs to.
- * Handles URLs with or without the https:// scheme.
+ * Handles URLs with or without the https:// scheme, all subdomain variants,
+ * and Spotify URI format (spotify:playlist:ID).
  */
 export function detectPlatform(url: string): ImportPlatform {
-  const normalized = url.trim().toLowerCase();
+  const normalized = normalizeUrl(url).toLowerCase();
   if (
     normalized.includes("youtube.com/playlist") ||
     normalized.includes("music.youtube.com/playlist") ||
+    normalized.includes("m.youtube.com/playlist") ||
     normalized.includes("youtu.be/playlist")
   ) {
     return "youtube";
   }
-  if (normalized.includes("open.spotify.com/playlist")) {
+  if (
+    normalized.includes("open.spotify.com/playlist") ||
+    normalized.includes("spotify.com/playlist") ||
+    normalized.startsWith("spotify:playlist:")
+  ) {
     return "spotify";
   }
   return "unknown";
@@ -71,29 +89,39 @@ export function detectPlatform(url: string): ImportPlatform {
 
 /**
  * Extract the playlist ID from a YouTube playlist URL.
- * Handles both youtube.com and music.youtube.com URLs, with or without scheme.
+ * Handles youtube.com, music.youtube.com, www.youtube.com, m.youtube.com,
+ * with or without https:// scheme.
+ * Returns null with a descriptive message on failure.
  */
 export function extractYouTubePlaylistId(url: string): string | null {
+  const withScheme = normalizeUrl(url);
   try {
-    // Ensure URL has a scheme for URL parser
-    const withScheme = url.startsWith("http") ? url : `https://${url}`;
     const parsed = new URL(withScheme);
     const listParam = parsed.searchParams.get("list");
-    return listParam || null;
+    if (listParam) return listParam;
   } catch {
-    // Fallback regex
-    const match = url.match(/[?&]list=([^&\s]+)/);
-    return match ? match[1] : null;
+    // URL constructor failed — fall through to regex
   }
+  // Regex fallback for malformed URLs
+  const match = withScheme.match(/[?&]list=([^&\s#]+)/);
+  return match ? match[1] : null;
 }
 
 /**
- * Extract the playlist ID from a Spotify playlist URL.
- * Format: open.spotify.com/playlist/{id}
+ * Extract the playlist ID from a Spotify playlist URL or URI.
+ * Handles:
+ *   open.spotify.com/playlist/PLAYLISTID
+ *   spotify.com/playlist/PLAYLISTID
+ *   spotify:playlist:PLAYLISTID (URI format)
  */
 export function extractSpotifyPlaylistId(url: string): string | null {
-  const match = url.match(/open\.spotify\.com\/playlist\/([a-zA-Z0-9]+)/);
-  return match ? match[1] : null;
+  const trimmed = url.trim();
+  // Handle Spotify URI format: spotify:playlist:PLAYLISTID
+  const uriMatch = trimmed.match(/^spotify:playlist:([A-Za-z0-9]+)/i);
+  if (uriMatch) return uriMatch[1];
+  // Handle all URL variants: .../playlist/PLAYLISTID
+  const urlMatch = trimmed.match(/playlist[/:]([A-Za-z0-9]+)/i);
+  return urlMatch ? urlMatch[1] : null;
 }
 
 // ─── Spotify Token ─────────────────────────────────────────────────────────────
@@ -271,9 +299,7 @@ export async function fetchYouTubePlaylist(
   ]);
 
   if (!metaRes.ok || !itemsRes.ok) {
-    throw new Error(
-      "Failed to fetch playlist from YouTube. Check the URL and try again.",
-    );
+    throw new Error("Could not connect to YouTube API — try again shortly.");
   }
 
   const [metaData, itemsData] = await Promise.all([
@@ -380,7 +406,7 @@ export async function fetchSpotifyPlaylist(
   const token = await getSpotifyToken();
   if (!token) {
     throw new Error(
-      "Could not connect to Spotify. Please check your connection and try again.",
+      "Could not connect to Spotify API — check credentials or try again.",
     );
   }
 
