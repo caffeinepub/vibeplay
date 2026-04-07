@@ -1,0 +1,38 @@
+// Version: 1.0.0
+type Data__791452850<K, V> =
+  {var count : Nat__490723111; kvs : [var ?(K, V)]};
+type Internal__8484328<K, V> =
+  {children : [var ?Node__46230540<K, V>]; data : Data__791452850<K, V>};
+type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
+type Nat__490723111 = Nat__920180692;
+type Nat__920180692 = Nat;
+type Node__46230540<K, V> =
+  {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
+type Playlist__961883281 =
+  {id : Nat; name : Text; userId : UserId__313180070; videoIds : [Text]};
+type Session__107932720 =
+  {createdAt : Int; token : Text; userId : UserId__313180070};
+type UserId__313180070 = Nat;
+type User__831686142 =
+  {email : Text; id : UserId__313180070; passHash : Text; username : Text};
+actor {
+  stable liked :
+    {var root : Node__46230540<Nat, [Text]>; var size : Nat__490723111};
+  stable var nextPlaylistId : Nat;
+  stable var nextUserId : Nat;
+  stable playlists :
+    {
+      var root : Node__46230540<Nat, Playlist__961883281>;
+      var size : Nat__490723111
+    };
+  stable sessions :
+    {
+      var root : Node__46230540<Text, Session__107932720>;
+      var size : Nat__490723111
+    };
+  stable users :
+    {
+      var root : Node__46230540<Text, User__831686142>;
+      var size : Nat__490723111
+    }
+};

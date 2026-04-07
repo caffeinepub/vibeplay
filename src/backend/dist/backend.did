@@ -1,0 +1,46 @@
+type UserId = nat;
+type Result = 
+ variant {
+   err: text;
+   ok;
+ };
+type AuthResult = 
+ variant {
+   err: text;
+   ok: text;
+ };
+service : {
+  addSongToPlaylist: (token: text, playlistId: nat, videoId: text) ->
+   (Result);
+  createPlaylist: (token: text, name: text) -> (variant {
+                                                  err: text;
+                                                  ok: nat;
+                                                });
+  deletePlaylist: (token: text, playlistId: nat) -> (Result);
+  getLikedSongs: (token: text) -> (variant {
+                                     err: text;
+                                     ok: vec text;
+                                   }) query;
+  getMe: (token: text) ->
+   (opt record {
+          email: text;
+          id: UserId;
+          username: text;
+        }) query;
+  getPlaylists: (token: text) ->
+   (variant {
+      err: text;
+      ok: vec record {
+                id: nat;
+                name: text;
+                videoIds: vec text;
+              };
+    }) query;
+  likeSong: (token: text, videoId: text) -> (Result);
+  login: (email: text, passHash: text) -> (AuthResult);
+  logout: (token: text) -> (Result);
+  register: (email: text, passHash: text) -> (AuthResult);
+  removeSongFromPlaylist: (token: text, playlistId: nat, videoId: text) ->
+   (Result);
+  unlikeSong: (token: text, videoId: text) -> (Result);
+}

@@ -310,7 +310,7 @@ export function PlayerScreen({
       </div>
 
       {/* Up Next Section */}
-      <div className="px-4 pb-6 flex-shrink-0">
+      <div className="px-4 pb-28 flex-shrink-0">
         <div className="flex items-center gap-2 mb-3">
           <ListMusic
             className="w-4 h-4"

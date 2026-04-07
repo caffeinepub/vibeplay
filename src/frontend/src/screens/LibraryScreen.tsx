@@ -1,6 +1,7 @@
 import {
   ChevronLeft,
   Heart,
+  Link2,
   ListMusic,
   Lock,
   Music2,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { ImportPlaylistPanel } from "../components/ImportPlaylistPanel";
 import { TrackItem } from "../components/TrackItem";
 import type { BackendPlaylistWithTracks } from "../hooks/useUserData";
 import type { Playlist, Track } from "../types";
@@ -33,6 +35,8 @@ interface LibraryScreenProps {
   onCreateBackendPlaylist?: (name: string) => void;
   onDeleteBackendPlaylist?: (id: bigint) => void;
   onAddToBackendPlaylist?: (playlistId: bigint, track: Track) => void;
+  // Import playlist (login required)
+  onImportPlaylist?: (name: string, tracks: Track[]) => Promise<void>;
 }
 
 type LibraryTab = "favorites" | "playlists";
@@ -54,10 +58,13 @@ export function LibraryScreen({
   onCreateBackendPlaylist,
   onDeleteBackendPlaylist,
   onAddToBackendPlaylist,
+  onImportPlaylist,
 }: LibraryScreenProps) {
   const [activeTab, setActiveTab] = useState<LibraryTab>("favorites");
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
+  const [showImportPanel, setShowImportPanel] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
   const [selectedPlaylist, setSelectedPlaylist] = useState<{
     id: string;
     name: string;
@@ -116,7 +123,18 @@ export function LibraryScreen({
     }
   }
 
-  // ── Playlist detail view ──────────────────────────────────────────────────
+  async function handleImportSave(name: string, tracks: Track[]) {
+    if (!onImportPlaylist) return;
+    setIsImporting(true);
+    try {
+      await onImportPlaylist(name, tracks);
+    } finally {
+      setIsImporting(false);
+      setShowImportPanel(false);
+    }
+  }
+
+  // ── Playlist detail view ────────────────────────────────────────────
   if (selectedPlaylist !== null) {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -205,25 +223,41 @@ export function LibraryScreen({
       <div className="px-4 pt-5 pb-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-foreground">Your Library</h1>
-          {activeTab === "playlists" && isLoggedIn && (
-            <button
-              type="button"
-              data-ocid="library.create.button"
-              onClick={() => setShowCreatePlaylist(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-full bg-vibe-green/20 hover:bg-vibe-green/30 touch-manipulation transition-colors"
-            >
-              <Plus className="w-4 h-4 text-vibe-green" />
-            </button>
-          )}
-          {activeTab === "playlists" && !isLoggedIn && (
-            <button
-              type="button"
-              data-ocid="library.create.button"
-              onClick={() => setShowCreatePlaylist(true)}
-              className="w-9 h-9 flex items-center justify-center rounded-full bg-vibe-green/20 hover:bg-vibe-green/30 touch-manipulation transition-colors"
-            >
-              <Plus className="w-4 h-4 text-vibe-green" />
-            </button>
+
+          {/* Playlists tab action buttons */}
+          {activeTab === "playlists" && (
+            <div className="flex items-center gap-2">
+              {/* Import Playlist — only visible when logged in */}
+              {isLoggedIn && (
+                <button
+                  type="button"
+                  data-ocid="library.import.button"
+                  onClick={() => setShowImportPanel(true)}
+                  disabled={isImporting}
+                  title="Import Playlist"
+                  className="w-9 h-9 flex items-center justify-center rounded-full touch-manipulation transition-colors"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, oklch(0.58 0.24 293 / 0.2), oklch(0.62 0.24 350 / 0.2))",
+                  }}
+                >
+                  <Link2
+                    className="w-4 h-4"
+                    style={{ color: "oklch(0.62 0.24 350)" }}
+                  />
+                </button>
+              )}
+
+              {/* Create Playlist */}
+              <button
+                type="button"
+                data-ocid="library.create.button"
+                onClick={() => setShowCreatePlaylist(true)}
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-vibe-green/20 hover:bg-vibe-green/30 touch-manipulation transition-colors"
+              >
+                <Plus className="w-4 h-4 text-vibe-green" />
+              </button>
+            </div>
           )}
         </div>
         <div className="flex gap-2 mt-4">
@@ -438,7 +472,7 @@ export function LibraryScreen({
                     No playlists yet
                   </p>
                   <p className="text-xs text-muted-foreground text-center">
-                    Tap + to create your first playlist
+                    Tap + to create your first playlist, or 🔗 to import one
                   </p>
                 </div>
               ) : (
@@ -483,6 +517,16 @@ export function LibraryScreen({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Import Playlist Panel (bottom sheet overlay) */}
+      <AnimatePresence>
+        {showImportPanel && (
+          <ImportPlaylistPanel
+            onClose={() => setShowImportPanel(false)}
+            onSave={handleImportSave}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

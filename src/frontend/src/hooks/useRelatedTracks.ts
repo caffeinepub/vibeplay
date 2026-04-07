@@ -3,13 +3,13 @@
  *
  * Flow:
  *  1. PRIMARY: Spotify /v1/recommendations (seed_tracks + seed_artists) → 15-20 tracks
- *  1b. BLEND: YouTube related videos (relatedToVideoId) blended in alongside Spotify
- *  2. FALLBACK: Last.fm track.getsimilar if Spotify unavailable
- *  3. For each candidate track: resolve to a YouTube video via youtubeMatchEngine
- *     — strict blocked-keyword filtering, scored matching, official audio priority
- *  4. Apply anti-repetition (last 10 play history), artist diversity (max 2/artist),
- *     version deduplication
- *  5. Build queue of up to 12 unique, diverse tracks
+ *     — with 6-second timeout; if Spotify hangs/fails, falls through immediately
+ *  1b. MANDATORY: YouTube related videos (relatedToVideoId) — always fetched in parallel,
+ *     never skipped regardless of Spotify result
+ *  2. FALLBACK: Last.fm track.getsimilar if combined candidates < 8
+ *  3. LAST RESORT: Direct YouTube search for "artist songs" if still < 5 candidates
+ *  4. For each candidate track: resolve to a YouTube video via youtubeMatchEngine
+ *  5. Apply anti-repetition, artist diversity (max 2/artist), version dedup
  */
 import { useEffect, useRef, useState } from "react";
 import {
@@ -28,40 +28,57 @@ import { findBestYouTubeMatch } from "../utils/youtubeMatchEngine";
 
 const MAX_QUEUE = 12;
 const SPOTIFY_RECS_LIMIT = 20;
+const SPOTIFY_TOKEN_TIMEOUT_MS = 6000;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Spotify helpers (inline to avoid needing client secret in spotifyService)
+// Spotify helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SPOTIFY_TOKEN_KEY = "vibeplay_spotify_token_v2";
 const TOKEN_TTL = 55 * 60 * 1000;
 
+/** Resolves with the token or null after SPOTIFY_TOKEN_TIMEOUT_MS */
 async function getSpotifyToken(): Promise<string | null> {
   if (!SPOTIFY_CLIENT_SECRET || !SPOTIFY_CLIENT_ID) return null;
-  try {
-    const cached = cacheGet<{ token: string; expiresAt: number }>(
-      SPOTIFY_TOKEN_KEY,
-    );
-    if (cached && Date.now() < cached.expiresAt) return cached.token;
 
-    const credentials = btoa(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`);
-    const res = await fetch(SPOTIFY_AUTH_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${credentials}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: "grant_type=client_credentials",
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const token = data.access_token as string;
-    if (!token) return null;
-    cacheSet(SPOTIFY_TOKEN_KEY, { token, expiresAt: Date.now() + TOKEN_TTL });
-    return token;
-  } catch {
-    return null;
+  const tokenPromise = (async () => {
+    try {
+      const cached = cacheGet<{ token: string; expiresAt: number }>(
+        SPOTIFY_TOKEN_KEY,
+      );
+      if (cached && Date.now() < cached.expiresAt) return cached.token;
+
+      const credentials = btoa(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`);
+      const res = await fetch(SPOTIFY_AUTH_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const token = data.access_token as string;
+      if (!token) return null;
+      cacheSet(SPOTIFY_TOKEN_KEY, { token, expiresAt: Date.now() + TOKEN_TTL });
+      return token;
+    } catch {
+      return null;
+    }
+  })();
+
+  const timeoutPromise = new Promise<null>((resolve) =>
+    setTimeout(() => resolve(null), SPOTIFY_TOKEN_TIMEOUT_MS),
+  );
+
+  const result = await Promise.race([tokenPromise, timeoutPromise]);
+  if (result === null) {
+    console.warn(
+      "[UpNext] Spotify token timed out — using YouTube/Last.fm only",
+    );
   }
+  return result;
 }
 
 /**
@@ -145,7 +162,7 @@ async function fetchSpotifyRecommendations(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Play history helpers (session-level)
+// Play history helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LS_HISTORY = "vibeplay_up_next_history";
@@ -153,7 +170,7 @@ const MAX_HISTORY = 10;
 
 interface HistEntry {
   id: string;
-  titleKey: string; // normalizeKey(title, artist)
+  titleKey: string;
 }
 
 function getHistory(): HistEntry[] {
@@ -211,6 +228,18 @@ const BLOCKED_KEYWORDS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Candidate type
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Candidate {
+  name: string;
+  artist: string;
+  thumbnail: string;
+  durationMs?: number;
+  spotifyId?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main hook
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -235,7 +264,7 @@ export function useRelatedTracks(track: Track | null) {
       setIsLoading(true);
 
       // Check final output cache first
-      const ck = cacheKey("upnext_v4", track.id);
+      const ck = cacheKey("upnext_v5", track.id);
       const cached = cacheGet<Track[]>(ck);
       if (cached) {
         if (!cancelled) {
@@ -253,85 +282,91 @@ export function useRelatedTracks(track: Track | null) {
         const history = getHistory();
         const historyIds = new Set(history.map((h) => h.id));
         const historyKeys = new Set(history.map((h) => h.titleKey));
-        // Also exclude the currently playing track
         historyIds.add(track.id);
         historyKeys.add(normalizeKey(currentTitle, currentArtist));
 
-        // ── Step 1: Try Spotify recommendations ────────────────────────────
-        let candidates: Array<{
-          name: string;
-          artist: string;
-          thumbnail: string;
-          durationMs?: number;
-          spotifyId?: string;
-        }> = [];
+        let candidates: Candidate[] = [];
 
-        const token = await getSpotifyToken();
-        if (token) {
-          const { trackId: spTrackId, artistId: spArtistId } =
-            await resolveSpotifyIds(currentTitle, currentArtist, token);
-
-          if (spTrackId || spArtistId) {
+        // ── Step 1 + 1b: Spotify AND YouTube run in PARALLEL ─────────────────
+        // YouTube relatedToVideoId is MANDATORY — never skipped regardless of Spotify
+        const [spotifyResult, ytRelatedResult] = await Promise.allSettled([
+          // Spotify path (with built-in 6s timeout inside getSpotifyToken)
+          (async (): Promise<Candidate[]> => {
+            const token = await getSpotifyToken();
+            if (!token) return [];
+            const { trackId: spTrackId, artistId: spArtistId } =
+              await resolveSpotifyIds(currentTitle, currentArtist, token);
+            if (!spTrackId && !spArtistId) return [];
             const recs = await fetchSpotifyRecommendations(
               spTrackId,
               spArtistId,
               token,
             );
+            return recs.map((r) => ({
+              name: r.name,
+              artist: r.artists[0]?.name ?? "",
+              thumbnail: r.album.images[0]?.url ?? "",
+              durationMs: r.duration_ms,
+              spotifyId: r.id,
+            }));
+          })(),
+          // YouTube related videos path — always executed
+          (async (): Promise<Candidate[]> => {
+            const ytRelatedUrl = (key: string) => {
+              const u = new URL(`${YOUTUBE_API_BASE}/search`);
+              u.searchParams.set("part", "snippet");
+              u.searchParams.set("relatedToVideoId", track.id);
+              u.searchParams.set("type", "video");
+              u.searchParams.set("videoCategoryId", "10");
+              u.searchParams.set("maxResults", "15");
+              u.searchParams.set("key", key);
+              return u.toString();
+            };
+            const ytRes = await fetchWithKeyFallback(ytRelatedUrl);
+            if (!ytRes.ok) return [];
+            const ytData = await ytRes.json();
+            return (ytData.items ?? []).map(
+              (item: {
+                snippet?: {
+                  title?: string;
+                  channelTitle?: string;
+                  thumbnails?: {
+                    medium?: { url: string };
+                    default?: { url: string };
+                  };
+                };
+              }) => ({
+                name: item.snippet?.title ?? "",
+                artist: item.snippet?.channelTitle ?? "",
+                thumbnail:
+                  item.snippet?.thumbnails?.medium?.url ??
+                  item.snippet?.thumbnails?.default?.url ??
+                  "",
+              }),
+            );
+          })(),
+        ]);
 
-            for (const r of recs) {
-              const artistName = r.artists[0]?.name ?? "";
-              const thumbnail = r.album.images[0]?.url ?? "";
-              candidates.push({
-                name: r.name,
-                artist: artistName,
-                thumbnail,
-                durationMs: r.duration_ms,
-                spotifyId: r.id,
-              });
-            }
+        // Merge Spotify + YouTube results, deduplicate by normalizeKey
+        const spotifyCandidates =
+          spotifyResult.status === "fulfilled" ? spotifyResult.value : [];
+        const ytCandidates =
+          ytRelatedResult.status === "fulfilled" ? ytRelatedResult.value : [];
+
+        const seenKeys = new Set<string>();
+        for (const c of spotifyCandidates) {
+          const k = normalizeKey(c.name, c.artist);
+          if (!seenKeys.has(k)) {
+            seenKeys.add(k);
+            candidates.push(c);
           }
         }
-
-        // ── Step 1b: YouTube related videos (blended with Spotify) ──────────────
-        // Fetch YouTube related videos for the current track
-        try {
-          const ytRelatedUrl = (key: string) => {
-            const u = new URL(`${YOUTUBE_API_BASE}/search`);
-            u.searchParams.set("part", "snippet");
-            u.searchParams.set("relatedToVideoId", track.id);
-            u.searchParams.set("type", "video");
-            u.searchParams.set("videoCategoryId", "10"); // Music category
-            u.searchParams.set("maxResults", "15");
-            u.searchParams.set("key", key);
-            return u.toString();
-          };
-          const ytRes = await fetchWithKeyFallback(ytRelatedUrl);
-          if (ytRes.ok) {
-            const ytData = await ytRes.json();
-            for (const item of ytData.items ?? []) {
-              const ytTitle = item.snippet?.title ?? "";
-              const ytChannel = item.snippet?.channelTitle ?? "";
-              const ytThumb =
-                item.snippet?.thumbnails?.medium?.url ??
-                item.snippet?.thumbnails?.default?.url ??
-                "";
-              // Skip if already found via Spotify (by normalizeKey dedup)
-              const alreadyIn = candidates.some(
-                (c) =>
-                  normalizeKey(c.name, c.artist) ===
-                  normalizeKey(ytTitle, ytChannel),
-              );
-              if (!alreadyIn) {
-                candidates.push({
-                  name: ytTitle,
-                  artist: ytChannel,
-                  thumbnail: ytThumb,
-                });
-              }
-            }
+        for (const c of ytCandidates) {
+          const k = normalizeKey(c.name, c.artist);
+          if (!seenKeys.has(k)) {
+            seenKeys.add(k);
+            candidates.push(c);
           }
-        } catch {
-          // YouTube related is optional
         }
 
         // ── Step 2: Last.fm fallback ──────────────────────────────────────────
@@ -346,16 +381,14 @@ export function useRelatedTracks(track: Track | null) {
               const artistName =
                 typeof t.artist === "string" ? t.artist : t.artist.name;
               const thumbnail =
-                t.image?.find((i) => i.size === "large")?.["#text"] ??
+                t.image?.find((i: { size: string }) => i.size === "large")?.[
+                  "#text"
+                ] ??
                 t.image?.[0]?.["#text"] ??
                 "";
-              // Avoid pushing candidates already found via Spotify or YouTube
-              const alreadyIn = candidates.some(
-                (c) =>
-                  normalizeKey(c.name, c.artist) ===
-                  normalizeKey(t.name, artistName),
-              );
-              if (!alreadyIn) {
+              const k = normalizeKey(t.name, artistName);
+              if (!seenKeys.has(k)) {
+                seenKeys.add(k);
                 candidates.push({
                   name: t.name,
                   artist: artistName,
@@ -368,25 +401,59 @@ export function useRelatedTracks(track: Track | null) {
           }
         }
 
-        if (candidates.length === 0 || cancelled) {
-          if (!cancelled) setRelatedTracks([]);
+        // ── Step 3: Last-resort direct YouTube search ─────────────────────────
+        // If we still have very few candidates, do a simple artist search
+        if (candidates.length < 5 && !cancelled) {
+          try {
+            const artistSearchRes = await fetchWithKeyFallback((key) => {
+              const u = new URL(`${YOUTUBE_API_BASE}/search`);
+              u.searchParams.set("part", "snippet");
+              u.searchParams.set("q", `${currentArtist} songs official audio`);
+              u.searchParams.set("type", "video");
+              u.searchParams.set("videoCategoryId", "10");
+              u.searchParams.set("maxResults", "10");
+              u.searchParams.set("key", key);
+              return u.toString();
+            });
+            if (artistSearchRes.ok) {
+              const artistData = await artistSearchRes.json();
+              for (const item of artistData.items ?? []) {
+                const name: string = item.snippet?.title ?? "";
+                const artist: string = item.snippet?.channelTitle ?? "";
+                const thumbnail: string =
+                  item.snippet?.thumbnails?.medium?.url ?? "";
+                const k = normalizeKey(name, artist);
+                if (!seenKeys.has(k)) {
+                  seenKeys.add(k);
+                  candidates.push({ name, artist, thumbnail });
+                }
+              }
+            }
+          } catch {
+            // non-fatal
+          }
+        }
+
+        if (cancelled) return;
+
+        if (candidates.length === 0) {
+          setRelatedTracks([]);
           return;
         }
 
-        // ── Pre-filter candidates with blocked keywords before YouTube resolution ─
+        // ── Pre-filter: blocked keywords ──────────────────────────────────────
         candidates = candidates.filter((c) => {
           const lower = c.name.toLowerCase();
           return !BLOCKED_KEYWORDS.some((kw) => lower.includes(kw));
         });
 
-        // ── Step 3: Anti-repetition filter (history + current track) ─────────
+        // ── Anti-repetition filter ────────────────────────────────────────────
         candidates = candidates.filter((c) => {
           const titleKey = normalizeKey(c.name, c.artist);
-          // Only check by titleKey here (we don't have YT ID yet)
           return !historyKeys.has(titleKey);
         });
 
-        // ── Step 4: Artist diversity (max 2 per artist) ────────────────────
+        // ── Artist diversity (max 2 per artist) ───────────────────────────────
         const artistCount = new Map<string, number>();
         candidates = candidates.filter((c) => {
           const normArtist = c.artist.toLowerCase().trim();
@@ -396,8 +463,7 @@ export function useRelatedTracks(track: Track | null) {
           return true;
         });
 
-        // ── Step 5: Resolve each candidate to a YouTube video via match engine ─
-        // Process up to 20 candidates, stop when we have MAX_QUEUE good results
+        // ── Resolve each candidate to a YouTube video ─────────────────────────
         const resolvedTracks: Track[] = [];
         const seenTitleKeys = new Set<string>();
         const seenYtIds = new Set<string>([track.id]);
@@ -410,8 +476,6 @@ export function useRelatedTracks(track: Track | null) {
 
           const titleKey = normalizeKey(candidate.name, candidate.artist);
           if (seenTitleKeys.has(titleKey)) continue;
-
-          // Also check against full history (after we have titleKey)
           if (isInHistory("", titleKey, historyIds, historyKeys)) continue;
 
           try {
@@ -422,10 +486,7 @@ export function useRelatedTracks(track: Track | null) {
             );
 
             if (!match || match.confidence < 0.05) continue;
-
-            // Skip if we've already queued this YT video
             if (seenYtIds.has(match.videoId)) continue;
-            // Skip if YT video ID is in history
             if (historyIds.has(match.videoId)) continue;
 
             seenTitleKeys.add(titleKey);
@@ -445,10 +506,10 @@ export function useRelatedTracks(track: Track | null) {
           }
         }
 
-        // ── Fallback: direct YouTube search if too few tracks resolved ──────
+        // ── Final fallback: direct YouTube search if queue still too short ─────
         if (resolvedTracks.length < 3 && !cancelled) {
           try {
-            const fallbackQuery = `${currentTitle} ${currentArtist} official audio`;
+            const fallbackQuery = `${currentArtist} official audio songs`;
             const fallbackRes = await fetchWithKeyFallback((key) => {
               const u = new URL(`${YOUTUBE_API_BASE}/search`);
               u.searchParams.set("part", "snippet");
@@ -471,7 +532,6 @@ export function useRelatedTracks(track: Track | null) {
                 const ytChannel: string = item.snippet?.channelTitle ?? "";
                 const ytThumb: string =
                   item.snippet?.thumbnails?.medium?.url ?? "";
-                // Apply blocked keywords filter
                 const isBlocked = BLOCKED_KEYWORDS.some((kw) =>
                   ytTitle.toLowerCase().includes(kw),
                 );
@@ -491,12 +551,13 @@ export function useRelatedTracks(track: Track | null) {
             // Fallback failure is non-fatal
           }
         }
+
         if (cancelled) return;
 
         cacheSet(ck, resolvedTracks);
         setRelatedTracks(resolvedTracks);
       } catch (err) {
-        console.error("Up Next fetch failed:", err);
+        console.error("[UpNext] fetch failed:", err);
         if (!cancelled) setRelatedTracks([]);
       } finally {
         if (!cancelled) setIsLoading(false);

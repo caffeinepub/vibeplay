@@ -449,6 +449,7 @@ export default function App() {
                 onCreateBackendPlaylist={userData.createPlaylist}
                 onDeleteBackendPlaylist={userData.deletePlaylist}
                 onAddToBackendPlaylist={userData.addTrackToPlaylist}
+                onImportPlaylist={userData.importPlaylist}
               />
             </motion.div>
           )}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { backendInterface as FullBackendInterface } from "../backend.d";
+import type { VibePlayBackend as FullBackendInterface } from "../types/backendTypes";
 import { useActor } from "./useActor";
 
 const SESSION_TOKEN_KEY = "vibeplay_session_token";
