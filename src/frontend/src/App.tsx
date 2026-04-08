@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { BottomNav } from "./components/BottomNav";
 import { MiniPlayer } from "./components/MiniPlayer";
+import { OfflineBanner } from "./components/OfflineBanner";
 import { useAuth } from "./hooks/useAuth";
 import {
   useContinueListening,
@@ -11,8 +12,10 @@ import {
   usePlaylists,
   useRecentSearches,
 } from "./hooks/useLocalStorage";
+import { useOfflineCache } from "./hooks/useOfflineCache";
 import { useRecommendationEngine } from "./hooks/useRecommendationEngine";
 import { recordPlayedTrack, useRelatedTracks } from "./hooks/useRelatedTracks";
+import { useSleepTimer } from "./hooks/useSleepTimer";
 import { useUserData } from "./hooks/useUserData";
 import { useYouTubePlayer } from "./hooks/useYouTubePlayer";
 import { HomeScreen } from "./screens/HomeScreen";
@@ -70,13 +73,30 @@ export default function App() {
   // Smart recommendation engine (localStorage + YouTube API + Last.fm)
   const recommendationEngine = useRecommendationEngine();
 
+  // Sleep timer
+  const sleepTimer = useSleepTimer(
+    useCallback(() => {
+      player.togglePlay();
+      toast.info("Sleep timer ended — playback stopped");
+    }, [player.togglePlay]),
+  );
+
+  // Offline cache (metadata only — no audio stored per YouTube ToS)
+  const offlineCache = useOfflineCache();
+
   useEffect(() => {
     player.onTrackChange((track) => {
       setCurrentTrack(track);
       addToHistory(track);
       userData.cacheTrack(track);
+      offlineCache.cacheTrack(track);
     });
-  }, [player.onTrackChange, addToHistory, userData.cacheTrack]);
+  }, [
+    player.onTrackChange,
+    addToHistory,
+    userData.cacheTrack,
+    offlineCache.cacheTrack,
+  ]);
 
   useEffect(() => {
     if (currentTrack) {
@@ -320,6 +340,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Offline banner — shown when device has no internet */}
+      <OfflineBanner isOffline={offlineCache.isOffline} />
+
       {/* Page Content */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
         <AnimatePresence mode="wait">
@@ -351,6 +374,8 @@ export default function App() {
                 onSetInterests={recommendationEngine.setInterests}
                 activeFilters={activeFilters}
                 onFiltersChange={handleFiltersChange}
+                cachedSongs={offlineCache.cachedSongs}
+                isOffline={offlineCache.isOffline}
               />
             </motion.div>
           )}
@@ -419,6 +444,10 @@ export default function App() {
                 }
                 onBack={() => setActiveTab("home")}
                 onPlayRelated={handlePlayRelated}
+                sleepTimerActive={sleepTimer.isActive}
+                sleepTimerFormatted={sleepTimer.formattedRemaining}
+                onSetSleepTimer={sleepTimer.setTimer}
+                onCancelSleepTimer={sleepTimer.cancelTimer}
               />
             </motion.div>
           )}

@@ -294,10 +294,24 @@ export function useYouTubePlayer() {
         onQueueEmptyRef.current?.();
         return;
       }
+      // Repeat one: replay same track
       if (repeatRef.current === "one") {
         playerRef.current?.loadVideoById(queue[queueIndexRef.current].id);
         return;
       }
+      // Shuffle: pick random index different from current
+      if (shuffleRef.current) {
+        let nextIndex = Math.floor(Math.random() * queue.length);
+        if (queue.length > 1 && nextIndex === queueIndexRef.current) {
+          nextIndex = (nextIndex + 1) % queue.length;
+        }
+        queueIndexRef.current = nextIndex;
+        const shuffledTrack = queue[nextIndex];
+        onTrackChangeRef.current?.(shuffledTrack);
+        playerRef.current?.loadVideoById(shuffledTrack.id);
+        return;
+      }
+      // Normal sequential advance
       let nextIndex = queueIndexRef.current + 1;
       if (nextIndex >= queue.length) {
         if (repeatRef.current === "all") {

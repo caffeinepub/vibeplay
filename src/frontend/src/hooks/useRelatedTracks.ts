@@ -209,6 +209,224 @@ function isInHistory(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Language detection helpers (for Up Next only — NOT from filter chips)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HINDI_ARTISTS = [
+  "arijit singh",
+  "neha kakkar",
+  "shreya ghoshal",
+  "atif aslam",
+  "jubin nautiyal",
+  "armaan malik",
+  "badshah",
+  "yo yo honey singh",
+  "darshan raval",
+  "lata mangeshkar",
+  "kumar sanu",
+  "udit narayan",
+  "sonu nigam",
+  "rahat fateh ali khan",
+  "ali zafar",
+  "sunidhi chauhan",
+  "kavita krishnamurthy",
+  "alka yagnik",
+  "kishore kumar",
+  "mohammed rafi",
+  "amit kumar",
+  "pawandeep rajan",
+  "kk",
+  "shaan",
+  "vishal dadlani",
+  "sukhwinder singh",
+  "benny dayal",
+];
+
+const PUNJABI_ARTISTS = [
+  "diljit dosanjh",
+  "sidhu moosewala",
+  "ammy virk",
+  "prabh gill",
+  "garry sandhu",
+  "jassi gill",
+  "gurnam bhullar",
+  "kulwinder billa",
+  "ninja",
+  "mankirt aulakh",
+  "karan aujla",
+  "ap dhillon",
+  "shubh",
+  "jass manak",
+  "gippy grewal",
+  "harrdy sandhu",
+  "bilal saeed",
+];
+
+const HARYANVI_ARTISTS = [
+  "masoom sharma",
+  "sapna choudhary",
+  "renuka panwar",
+  "pranjal dahiya",
+  "ajay hooda",
+  "raj mawar",
+  "parmod premi",
+  "dev kumar deva",
+  "vijay varma",
+  "ruchika jangid",
+];
+
+// Devanagari Unicode range: U+0900–U+097F
+const DEVANAGARI_REGEX = /[\u0900-\u097F]/;
+// Punjabi (Gurmukhi) Unicode range: U+0A00–U+0A7F
+const GURMUKHI_REGEX = /[\u0A00-\u0A7F]/;
+
+/** Common Hindi/Bollywood keywords in romanized titles */
+const HINDI_TITLE_KEYWORDS = [
+  "tera",
+  "mera",
+  "pyaar",
+  "dil",
+  "ishq",
+  "mohabbat",
+  "zindagi",
+  "tujhe",
+  "tumse",
+  "yaar",
+  "sajna",
+  "mitwa",
+  "pehla",
+  "naina",
+  "hasna",
+  "rona",
+  "aadat",
+  "bewafa",
+  "intezaar",
+  "judaai",
+  "lamha",
+  "khwaab",
+  "raah",
+  "safar",
+  "duniya",
+  "khuda",
+  "waqt",
+  "nazar",
+  "jahan",
+  "dard",
+  "tanhai",
+  "aaoge",
+  "jaoge",
+  "tere",
+  "mere",
+  "humari",
+  "tumhari",
+  "aashiqui",
+  "bahut",
+  "kuch",
+  "aaja",
+  "channa",
+  "bulleya",
+  "gerua",
+  "phir",
+  "kabhi",
+  "kaise",
+  "juda",
+  "pal",
+  "pehle",
+];
+
+const PUNJABI_TITLE_KEYWORDS = [
+  "punjabi",
+  "haryanvi",
+  "bhangra",
+  "gabru",
+  "mutiyar",
+  "kurti",
+  "patola",
+  "ni",
+  "te",
+  "ve",
+  "oye",
+  "yaarian",
+  "pegg",
+  "shayari",
+  "suit",
+  "dilruba",
+  "chitta",
+  "kudi",
+  "munda",
+  "tenu",
+  "menu",
+];
+
+export type DetectedLanguage =
+  | "hindi"
+  | "punjabi"
+  | "haryanvi"
+  | "english"
+  | "other";
+
+/**
+ * Detects the language of a track based on title + artist name.
+ * Used ONLY for Up Next recommendations — NOT tied to filter chip selections.
+ */
+export function detectTrackLanguage(
+  title: string,
+  artist: string,
+): DetectedLanguage {
+  const titleLower = title.toLowerCase();
+  const artistLower = artist.toLowerCase();
+  const combined = `${titleLower} ${artistLower}`;
+
+  // Devanagari script → definitely Hindi/Indian
+  if (DEVANAGARI_REGEX.test(title) || DEVANAGARI_REGEX.test(artist))
+    return "hindi";
+
+  // Gurmukhi script → Punjabi
+  if (GURMUKHI_REGEX.test(title) || GURMUKHI_REGEX.test(artist))
+    return "punjabi";
+
+  // Haryanvi artist check first
+  if (HARYANVI_ARTISTS.some((a) => artistLower.includes(a))) return "haryanvi";
+
+  // Punjabi artist check
+  if (PUNJABI_ARTISTS.some((a) => artistLower.includes(a))) return "punjabi";
+
+  // Hindi artist check
+  if (HINDI_ARTISTS.some((a) => artistLower.includes(a))) return "hindi";
+
+  // Title keyword checks
+  if (PUNJABI_TITLE_KEYWORDS.some((kw) => combined.includes(kw)))
+    return "punjabi";
+  if (HINDI_TITLE_KEYWORDS.some((kw) => combined.includes(kw))) return "hindi";
+
+  // Contains "haryanvi" or "haryana" in title/artist
+  if (combined.includes("haryanvi") || combined.includes("haryana"))
+    return "haryanvi";
+
+  // Contains "bollywood"
+  if (combined.includes("bollywood")) return "hindi";
+
+  return "english";
+}
+
+/**
+ * Returns a language-qualified search term for YouTube fallback queries.
+ * Only applies to Indian-language tracks. English → empty string (no qualifier).
+ */
+export function getLanguageSearchTerm(lang: DetectedLanguage): string {
+  switch (lang) {
+    case "hindi":
+      return "hindi";
+    case "punjabi":
+      return "punjabi";
+    case "haryanvi":
+      return "haryanvi";
+    default:
+      return "";
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Blocked keywords for filtering
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -283,6 +501,10 @@ export function useRelatedTracks(track: Track | null) {
       try {
         const currentTitle = track.title;
         const currentArtist = track.artist ?? track.channelName;
+
+        // Detect the language of the CURRENT track for language-aware fallbacks
+        const detectedLang = detectTrackLanguage(currentTitle, currentArtist);
+        const langTerm = getLanguageSearchTerm(detectedLang);
 
         // Build history sets for dedup
         const history = getHistory();
@@ -409,12 +631,16 @@ export function useRelatedTracks(track: Track | null) {
 
         // ── Step 3: Last-resort direct YouTube search ─────────────────────────
         // If we still have very few candidates, do a simple artist search
+        // Use language-qualified query for Indian tracks, generic for others
         if (candidates.length < 5 && !cancelled) {
           try {
+            const artistQuery = langTerm
+              ? `${currentArtist} ${langTerm} songs official audio`
+              : `${currentArtist} songs official audio`;
             const artistSearchRes = await fetchWithKeyFallback((key) => {
               const u = new URL(`${YOUTUBE_API_BASE}/search`);
               u.searchParams.set("part", "snippet");
-              u.searchParams.set("q", `${currentArtist} songs official audio`);
+              u.searchParams.set("q", artistQuery);
               u.searchParams.set("type", "video");
               u.searchParams.set("videoCategoryId", "10");
               u.searchParams.set("maxResults", "10");
@@ -513,9 +739,12 @@ export function useRelatedTracks(track: Track | null) {
         }
 
         // ── Final fallback: direct YouTube search if queue still too short ─────
+        // Uses language-aware query for Indian tracks only
         if (resolvedTracks.length < 3 && !cancelled) {
           try {
-            const fallbackQuery = `${currentArtist} official audio songs`;
+            const fallbackQuery = langTerm
+              ? `${currentArtist} ${langTerm} official audio songs`
+              : `${currentArtist} official audio songs`;
             const fallbackRes = await fetchWithKeyFallback((key) => {
               const u = new URL(`${YOUTUBE_API_BASE}/search`);
               u.searchParams.set("part", "snippet");

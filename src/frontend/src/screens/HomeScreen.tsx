@@ -1,11 +1,13 @@
 import { ChevronRight, Clock, LogOut, Search, User } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { DailyMixSection } from "../components/DailyMixSection";
 import { FilterChipBar } from "../components/FilterChipBar";
 import { InterestPicker } from "../components/InterestPicker";
 import { RecommendationFeed } from "../components/RecommendationFeed";
 import { TrendingPlaylists } from "../components/TrendingPlaylists";
 import { MOOD_CATEGORIES } from "../data/mockData";
+import { useDailyMix } from "../hooks/useDailyMix";
 import type { RecommendationSection, TabName, Track } from "../types";
 
 interface HomeScreenProps {
@@ -28,6 +30,9 @@ interface HomeScreenProps {
   // Filter chips
   activeFilters?: string[];
   onFiltersChange?: (filters: string[]) => void;
+  // Offline cached songs
+  cachedSongs?: Track[];
+  isOffline?: boolean;
 }
 
 function getGreeting() {
@@ -71,9 +76,12 @@ export function HomeScreen({
   needsOnboarding = false,
   onSetInterests,
   onFiltersChange,
+  cachedSongs = [],
+  isOffline = false,
 }: HomeScreenProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [interestPickerDismissed, setInterestPickerDismissed] = useState(false);
+  const { mixes: dailyMixes, isLoading: isDailyMixLoading } = useDailyMix();
 
   const displayName = username || "Deepak";
   const userCode =
@@ -234,6 +242,14 @@ export function HomeScreen({
 
         {/* 🔥 Trending Playlists */}
         <TrendingPlaylists onPlay={onPlay} currentTrack={currentTrack} />
+
+        {/* 🎵 Daily Mix */}
+        <DailyMixSection
+          mixes={dailyMixes}
+          isLoading={isDailyMixLoading}
+          currentTrack={currentTrack}
+          onPlay={onPlay}
+        />
 
         {/* Continue Listening (native, non-recommendation section) */}
         {continueListening.length > 0 && (
@@ -420,6 +436,75 @@ export function HomeScreen({
                 >
                   {q}
                 </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Offline / Recently Cached Songs */}
+        {cachedSongs.length > 0 && (
+          <section className="px-4 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2
+                className="text-sm font-bold uppercase tracking-wider flex items-center gap-2"
+                style={{ color: isOffline ? "oklch(0.72 0.19 55)" : undefined }}
+              >
+                {isOffline ? "⬇ Available Offline" : "⬇ Offline Ready"}
+              </h2>
+            </div>
+            <div className="space-y-2">
+              {cachedSongs.slice(0, isOffline ? 15 : 5).map((t, i) => (
+                <motion.button
+                  key={t.id}
+                  type="button"
+                  data-ocid={`home.offline.item.${i + 1}`}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.04 }}
+                  onClick={() => onPlay(t, cachedSongs)}
+                  className="flex items-center gap-3 w-full bg-muted/20 hover:bg-muted/40 active:bg-muted/60 rounded-xl p-2.5 touch-manipulation transition-colors"
+                >
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={t.thumbnail}
+                      alt={t.title}
+                      className="w-10 h-10 rounded-lg object-cover bg-muted"
+                    />
+                    <div
+                      className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                      style={{
+                        background: isOffline
+                          ? "oklch(0.72 0.19 55)"
+                          : "oklch(0.58 0.24 293)",
+                      }}
+                    >
+                      <span className="text-[8px] text-white font-bold">✓</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 text-left">
+                    <p className="text-sm font-semibold text-foreground truncate">
+                      {t.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {t.channelName}
+                    </p>
+                  </div>
+                  {currentTrack?.id === t.id && (
+                    <div className="flex gap-0.5 items-end h-4 flex-shrink-0 mr-1">
+                      {[0, 1, 2].map((j) => (
+                        <div
+                          key={j}
+                          className="w-0.5 rounded-full animate-bounce"
+                          style={{
+                            height: `${50 + j * 25}%`,
+                            animationDelay: `${j * 0.15}s`,
+                            background: "oklch(0.58 0.24 293)",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </motion.button>
               ))}
             </div>
           </section>

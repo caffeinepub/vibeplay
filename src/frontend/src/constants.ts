@@ -16,6 +16,9 @@ export const YOUTUBE_API_KEYS = [
   "AIzaSyD1ZBkKir687901Sbk8NLm9g71i4rUXo4c",
   "AIzaSyAEH5Y74v7BPyxeoQm5lJDTFipJq7-wYC0",
   "AIzaSyD5ZfbVi42lPN84pGlCNQyoD7vYHa1LqC8",
+  "AIzaSyAEGEBwto5oH3GMj7h6R26XDTajAekrfT0",
+  "AIzaSyB66THj34ILhvC6pOBJDEatqagp8tMHc4k",
+  "AIzaSyBe9bZJIgTNL-CNnSQgdxXGIqeB7KitSgg",
 ];
 
 // Primary key (kept for backward compat)

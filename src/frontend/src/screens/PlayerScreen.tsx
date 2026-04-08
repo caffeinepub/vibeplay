@@ -11,9 +11,10 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  Timer,
   Volume2,
 } from "lucide-react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import type { RepeatMode, Track } from "../types";
 
@@ -23,6 +24,8 @@ function formatTime(seconds: number): string {
   const s = Math.floor(seconds % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+const SLEEP_OPTIONS = [5, 10, 15, 30, 45, 60];
 
 interface PlayerScreenProps {
   track: Track | null;
@@ -46,6 +49,11 @@ interface PlayerScreenProps {
   onToggleFavorite: () => void;
   onBack: () => void;
   onPlayRelated: (track: Track) => void;
+  // Sleep Timer
+  sleepTimerActive?: boolean;
+  sleepTimerFormatted?: string | null;
+  onSetSleepTimer?: (minutes: number) => void;
+  onCancelSleepTimer?: () => void;
 }
 
 export function PlayerScreen({
@@ -70,8 +78,13 @@ export function PlayerScreen({
   onToggleFavorite,
   onBack,
   onPlayRelated,
+  sleepTimerActive = false,
+  sleepTimerFormatted = null,
+  onSetSleepTimer,
+  onCancelSleepTimer,
 }: PlayerScreenProps) {
   const [showVolume, setShowVolume] = useState(false);
+  const [showSleepTimer, setShowSleepTimer] = useState(false);
 
   if (!track) {
     return (
@@ -113,15 +126,118 @@ export function PlayerScreen({
         >
           Now Playing
         </p>
-        <button
-          type="button"
-          data-ocid="player.volume.button"
-          onClick={() => setShowVolume(!showVolume)}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-muted/50 touch-manipulation"
-        >
-          <Volume2 className="w-4 h-4 text-foreground" />
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Sleep timer button */}
+          <button
+            type="button"
+            data-ocid="player.sleep_timer.button"
+            onClick={() => setShowSleepTimer((v) => !v)}
+            className="w-10 h-10 flex items-center justify-center rounded-full bg-muted/50 touch-manipulation relative"
+            aria-label="Sleep timer"
+          >
+            <Timer
+              className="w-4 h-4 transition-colors"
+              style={{
+                color: sleepTimerActive
+                  ? "oklch(0.75 0.17 200)"
+                  : "oklch(var(--muted-foreground))",
+              }}
+            />
+            {sleepTimerActive && (
+              <span
+                className="absolute -top-1 -right-1 text-[9px] font-bold px-1 rounded-full"
+                style={{
+                  background: "oklch(0.75 0.17 200)",
+                  color: "oklch(0.1 0 0)",
+                  minWidth: 18,
+                  textAlign: "center",
+                  lineHeight: "16px",
+                }}
+              >
+                {sleepTimerFormatted}
+              </span>
+            )}
+          </button>
+          {/* Volume button */}
+          <button
+            type="button"
+            data-ocid="player.volume.button"
+            onClick={() => setShowVolume(!showVolume)}
+            className="w-10 h-10 flex items-center justify-center rounded-full bg-muted/50 touch-manipulation"
+          >
+            <Volume2 className="w-4 h-4 text-foreground" />
+          </button>
+        </div>
       </div>
+
+      {/* Sleep Timer Panel */}
+      <AnimatePresence>
+        {showSleepTimer && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mx-4 mb-2 rounded-2xl overflow-hidden flex-shrink-0"
+            style={{
+              background: "oklch(0.16 0.03 293 / 0.8)",
+              border: "1px solid oklch(0.58 0.24 293 / 0.2)",
+            }}
+          >
+            <div className="p-3">
+              <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
+                ⏱ Sleep Timer
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {SLEEP_OPTIONS.map((min) => (
+                  <button
+                    key={min}
+                    type="button"
+                    data-ocid={`player.sleep_timer.option.${min}`}
+                    onClick={() => {
+                      onSetSleepTimer?.(min);
+                      setShowSleepTimer(false);
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-colors touch-manipulation"
+                    style={{
+                      background: "oklch(0.2 0 0)",
+                      color: "oklch(0.88 0 0)",
+                      border: "1px solid oklch(0.58 0.24 293 / 0.3)",
+                    }}
+                  >
+                    {min}m
+                  </button>
+                ))}
+                {sleepTimerActive && (
+                  <button
+                    type="button"
+                    data-ocid="player.sleep_timer.cancel"
+                    onClick={() => {
+                      onCancelSleepTimer?.();
+                      setShowSleepTimer(false);
+                    }}
+                    className="px-3 py-1.5 rounded-full text-xs font-medium touch-manipulation"
+                    style={{
+                      background: "oklch(0.2 0 0)",
+                      color: "oklch(0.62 0.24 350)",
+                      border: "1px solid oklch(0.62 0.24 350 / 0.3)",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+              {sleepTimerActive && sleepTimerFormatted && (
+                <p
+                  className="text-xs mt-2"
+                  style={{ color: "oklch(0.75 0.17 200)" }}
+                >
+                  Stops in {sleepTimerFormatted}
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Volume Slider */}
       {showVolume && (
@@ -236,6 +352,7 @@ export function PlayerScreen({
             data-ocid="player.shuffle.toggle"
             onClick={onToggleShuffle}
             className="w-11 h-11 flex items-center justify-center rounded-full touch-manipulation"
+            aria-label={shuffle ? "Shuffle on" : "Shuffle off"}
           >
             <Shuffle
               className="w-5 h-5 transition-colors"
@@ -243,6 +360,9 @@ export function PlayerScreen({
                 color: shuffle
                   ? "oklch(0.58 0.24 293)"
                   : "oklch(var(--muted-foreground))",
+                filter: shuffle
+                  ? "drop-shadow(0 0 4px oklch(0.58 0.24 293 / 0.6))"
+                  : "none",
               }}
             />
           </button>
@@ -288,11 +408,21 @@ export function PlayerScreen({
             data-ocid="player.repeat.toggle"
             onClick={onCycleRepeat}
             className="w-11 h-11 flex items-center justify-center rounded-full touch-manipulation"
+            aria-label={
+              repeat === "one"
+                ? "Repeat one"
+                : repeat === "all"
+                  ? "Repeat all"
+                  : "Repeat off"
+            }
           >
             {repeat === "one" ? (
               <Repeat1
                 className="w-5 h-5"
-                style={{ color: "oklch(0.75 0.17 200)" }}
+                style={{
+                  color: "oklch(0.75 0.17 200)",
+                  filter: "drop-shadow(0 0 4px oklch(0.75 0.17 200 / 0.6))",
+                }}
               />
             ) : (
               <Repeat
@@ -302,6 +432,10 @@ export function PlayerScreen({
                     repeat === "all"
                       ? "oklch(0.75 0.17 200)"
                       : "oklch(var(--muted-foreground))",
+                  filter:
+                    repeat === "all"
+                      ? "drop-shadow(0 0 4px oklch(0.75 0.17 200 / 0.6))"
+                      : "none",
                 }}
               />
             )}
